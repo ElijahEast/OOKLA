@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>LinkUp — Phase 2: Map & Profiles</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; }
+  body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background: oklch(14% 0.02 265);
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  .phone { width: 390px; height: 844px; background: oklch(11% 0.015 265); border-radius: 48px; overflow: hidden; position: relative; box-shadow: 0 0 0 1px oklch(30% 0.02 265), 0 40px 80px oklch(0% 0 0 / 0.6); }
+  @media (max-height: 900px) { .phone { transform: scale(0.88); transform-origin: center; } }
+  @media (max-height: 780px) { .phone { transform: scale(0.76); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes ping { 0%,100% { transform: scale(1); opacity:0.8; } 50% { transform: scale(1.5); opacity:0; } }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  * { -webkit-tap-highlight-color: transparent; }
+  input::placeholder, textarea::placeholder { color: oklch(38% 0.01 265); }
+  ::-webkit-scrollbar { width: 0; }
+  textarea { resize: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const C = {
+  bg:      'oklch(11% 0.015 265)',
+  surface: 'oklch(16% 0.018 265)',
+  raised:  'oklch(20% 0.018 265)',
+  border:  'oklch(25% 0.02 265)',
+  accent:  'oklch(62% 0.22 28)',
+  accentL: 'oklch(62% 0.22 28 / 0.15)',
+  accentG: 'oklch(62% 0.22 28 / 0.08)',
+  text:    'oklch(95% 0.005 265)',
+  muted:   'oklch(52% 0.01 265)',
+  error:   'oklch(62% 0.2 15)',
+  success: 'oklch(62% 0.18 145)',
+  blue:    'oklch(62% 0.18 240)',
+  purple:  'oklch(62% 0.18 295)',
+};
+
+// Mock nearby users (simulating PostGIS query results)
+const MOCK_NEARBY = [
+  { id:1, username:'alex_m',   display_name:'Alex M.',   distance_m:180,  level:7,  xp:340,  bio:'Coffee addict. Always down for spontaneous meetups.', color:'oklch(58% 0.16 190)', lat:37.7755, lng:-122.4185 },
+  { id:2, username:'jordan_k', display_name:'Jordan K.', distance_m:450,  level:12, xp:890,  bio:'Skater & photographer. DM for collabs.', color:'oklch(58% 0.16 270)', lat:37.7760, lng:-122.4170 },
+  { id:3, username:'sam_r',    display_name:'Sam R.',    distance_m:820,  level:3,  xp:120,  bio:'New to the city, looking to explore!', color:'oklch(58% 0.16 140)', lat:37.7748, lng:-122.4195 },
+  { id:4, username:'maya_v',   display_name:'Maya V.',   distance_m:1200, level:21, xp:2400, bio:'Top 100 explorer. Meetup streak: 14 days 🔥', color:'oklch(58% 0.16 50)',  lat:37.7762, lng:-122.4160 },
+  { id:5, username:'chris_b',  display_name:'Chris B.',  distance_m:950,  level:9,  xp:660,  bio:'Musician. Let\'s jam or just vibe.', color:'oklch(58% 0.16 330)', lat:37.7745, lng:-122.4178 },
+];
+
+// ── Shared UI ─────────────────────────────────────────────────────────────────
+const Icon = ({ name, size=20, color=C.muted }) => {
+  const p = { fill:'none', stroke:color, strokeWidth:'2', strokeLinecap:'round', strokeLinejoin:'round' };
+  const icons = {
+    back:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polyline points="15 18 9 12 15 6"/></svg>,
+    eye:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+    eyeOff:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+    mail:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>,
+    user:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 10-16 0"/></svg>,
+    lock:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+    arrow:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+    check:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+    map:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>,
+    location: <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>,
+    camera:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>,
+    shield:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+    star:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+    people:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+    quest:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+    shop:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>,
+    close:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    edit:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+    zap:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+  };
+  return icons[name] || null;
+};
+
+function Spinner({ color='#fff', size=20 }) {
+  return <div style={{ width:size, height:size, border:`2.5px solid ${color}44`, borderTopColor:color, borderRadius:'50%', animation:'spin 0.7s linear infinite' }}/>;
+}
+
+function StatusBar() {
+  const t = new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 28px 0', color:C.text, fontSize:13, fontWeight:600 }}>
+      <span>{t}</span>
+      <div style={{ display:'flex', gap:5, alignItems:'center' }}>
+        <svg width="16" height="11" viewBox="0 0 16 11" fill={C.text}><rect x="0" y="3" width="3" height="8" rx="1"/><rect x="4.5" y="2" width="3" height="9" rx="1"/><rect x="9" y="0.5" width="3" height="10.5" rx="1"/><rect x="13.5" y="0" width="2.5" height="11" rx="1"/></svg>
+        <svg width="16" height="11" viewBox="0 0 24 11" fill={C.text}><rect x="0" y="1.5" width="21" height="8" rx="2" stroke={C.text} strokeWidth="1.5" fill="none"/><rect x="21.5" y="3.5" width="2" height="4" rx="1" fill={C.text}/><rect x="1.5" y="3" width="13" height="5" rx="1"/></svg>
+      </div>
+    </div>
+  );
+}
+
+function Wordmark({ size='lg' }) {
+  const s = size==='lg' ? 36 : 26;
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+      <div style={{ width:s, height:s, borderRadius:s*0.35, background:C.accent, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:`0 4px 14px ${C.accent}55` }}>
+        <Icon name="map" size={s*0.55} color="#fff"/>
+      </div>
+      <span style={{ fontSize:size==='lg'?26:20, fontWeight:800, color:C.text, letterSpacing:'-0.03em' }}>Link<span style={{color:C.accent}}>Up</span></span>
+    </div>
+  );
+}
+
+function Field({ label, type='text', value, onChange, icon, error, placeholder, suffix, multiline, rows=3 }) {
+  const [focused, setFocused] = useState(false);
+  const Tag = multiline ? 'textarea' : 'input';
+  return (
+    <div style={{ marginBottom:16 }}>
+      {label && <label style={{ display:'block', fontSize:11, fontWeight:700, color:C.muted, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:7 }}>{label}</label>}
+      <div style={{ display:'flex', alignItems: multiline ? 'flex-start' : 'center', gap:10, background: focused?C.surface:'oklch(13% 0.015 265)', border:`1.5px solid ${error?C.error:focused?C.accent:C.border}`, borderRadius:14, padding: multiline?'12px 14px':'0 14px', minHeight:multiline?undefined:52, transition:'all 0.2s', boxShadow: focused?`0 0 0 3px ${C.accentL}`:'none' }}>
+        {icon && <span style={{ paddingTop: multiline?2:0, flexShrink:0 }}><Icon name={icon} size={18} color={focused?C.accent:C.muted}/></span>}
+        <Tag type={type} value={value} onChange={onChange} placeholder={placeholder} rows={multiline?rows:undefined}
+          onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
+          style={{ flex:1, background:'none', border:'none', outline:'none', color:C.text, fontSize:15, fontFamily:'inherit', fontWeight:500, lineHeight:1.6, paddingTop: multiline?0:undefined }}/>
+        {suffix}
+      </div>
+      {error && <p style={{ color:C.error, fontSize:12, marginTop:5, fontWeight:500 }}>{error}</p>}
+    </div>
+  );
+}
+
+function Btn({ children, onClick, variant='primary', loading, disabled, full=true, small, style:sx }) {
+  const [pressed, setPressed] = useState(false);
+  const h = small ? 40 : 54;
+  const base = { width:full?'100%':undefined, height:h, borderRadius:small?12:16, border:'none', cursor:disabled||loading?'not-allowed':'pointer', fontSize:small?14:16, fontWeight:700, fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:8, transition:'all 0.15s', transform:pressed?'scale(0.97)':'scale(1)', opacity:disabled||loading?0.55:1, paddingLeft:small?16:undefined, paddingRight:small?16:undefined, ...sx };
+  const vs = { primary:{ background:C.accent, color:'#fff', boxShadow:`0 4px 20px ${C.accent}44` }, ghost:{ background:C.surface, color:C.text, border:`1.5px solid ${C.border}` }, subtle:{ background:C.accentG, color:C.accent, border:`1px solid ${C.accentL}` } };
+  return <button onClick={disabled||loading?undefined:onClick} onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)} onMouseLeave={()=>setPressed(false)} style={{...base,...vs[variant]}}>{loading?<Spinner/>:children}</button>;
+}
+
+function Avatar({ name, color, size=44, url }) {
+  const initials = name ? name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() : '?';
+  return (
+    <div style={{ width:size, height:size, borderRadius:'50%', background: url?'transparent':color||C.raised, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.36, fontWeight:700, color:'#fff', overflow:'hidden', border:`2px solid ${C.border}` }}>
+      {url ? <img src={url} style={{width:'100%',height:'100%',objectFit:'cover'}}/> : initials}
+    </div>
+  );
+}
+
+// ── Bottom Nav ────────────────────────────────────────────────────────────────
+function BottomNav({ active, onTab }) {
+  const tabs = [
+    { id:'map',    icon:'map',    label:'Explore' },
+    { id:'people', icon:'people', label:'People' },
+    { id:'quests', icon:'quest',  label:'Quests' },
+    { id:'shop',   icon:'shop',   label:'Shop' },
+    { id:'profile',icon:'user',   label:'Profile' },
+  ];
+  return (
+    <div style={{ display:'flex', borderTop:`1px solid ${C.border}`, background:C.bg, flexShrink:0 }}>
+      {tabs.map(tab => {
+        const on = active === tab.id;
+        return (
+          <button key={tab.id} onClick={()=>onTab(tab.id)} style={{ flex:1, padding:'10px 0 18px', background:'none', border:'none', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+            <Icon name={tab.icon} size={21} color={on?C.accent:C.muted}/>
+            <span style={{ fontSize:10, color:on?C.accent:C.muted, fontWeight:on?700:500 }}>{tab.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONBOARDING SCREENS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function OnboardProgress({ step, total=4 }) {
+  return (
+    <div style={{ display:'flex', gap:6, marginBottom:28 }}>
+      {[...Array(total)].map((_,i) => (
+        <div key={i} style={{ flex:1, height:3, borderRadius:99, background: i < step ? C.accent : C.border, transition:'background 0.3s' }}/>
+      ))}
+    </div>
+  );
+}
+
+// Step 1: Display name + bio
+function OnboardStep1({ data, onChange, onNext }) {
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', animation:'fadeUp 0.3s ease' }}>
+      <StatusBar/>
+      <div style={{ flex:1, padding:'24px 28px', overflow:'auto' }}>
+        <Wordmark size="sm"/>
+        <div style={{ marginTop:28, marginBottom:24 }}>
+          <OnboardProgress step={1}/>
+          <h2 style={{ fontSize:24, fontWeight:800, color:C.text, letterSpacing:'-0.03em', marginBottom:6 }}>Set up your profile</h2>
+          <p style={{ color:C.muted, fontSize:14, lineHeight:1.6 }}>This is what others see when they find you nearby.</p>
+        </div>
+
+        {/* Avatar picker */}
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:28 }}>
+          <div style={{ position:'relative' }}>
+            <div style={{ width:90, height:90, borderRadius:'50%', background:`linear-gradient(135deg, ${C.accent}, oklch(62% 0.22 55))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:32, fontWeight:800, color:'#fff', border:`3px solid ${C.bg}`, boxShadow:`0 0 0 2px ${C.accent}` }}>
+              {data.displayName ? data.displayName[0].toUpperCase() : '?'}
+            </div>
+            <div style={{ position:'absolute', bottom:0, right:0, width:28, height:28, borderRadius:'50%', background:C.accent, display:'flex', alignItems:'center', justifyContent:'center', border:`2px solid ${C.bg}`, cursor:'pointer' }}>
+              <Icon name="camera" size={13} color="#fff"/>
+            </div>
+          </div>
+          <p style={{ color:C.muted, fontSize:12, marginTop:8 }}>Tap to upload photo</p>
+        </div>
+
+        <Field label="Display Name" icon="user" value={data.displayName} onChange={e=>onChange('displayName',e.target.value)} placeholder="How should we call you?"/>
+        <Field label="Bio" icon="edit" value={data.bio} onChange={e=>onChange('bio',e.target.value)} placeholder="Tell people a bit about yourself..." multiline rows={3}/>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={{ display:'block', fontSize:11, fontWeight:700, color:C.muted, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:10 }}>I'm here to</label>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+            {['Make friends','Coffee meetups','Explore the city','Networking','Sports & activities','Just vibing'].map(tag => {
+              const on = data.interests?.includes(tag);
+              return (
+                <button key={tag} onClick={()=>{
+                  const cur = data.interests || [];
+                  onChange('interests', on ? cur.filter(t=>t!==tag) : [...cur, tag]);
+                }} style={{ padding:'7px 14px', borderRadius:20, border:`1.5px solid ${on?C.accent:C.border}`, background:on?C.accentL:'none', color:on?C.accent:C.muted, fontSize:13, fontWeight:600, cursor:'pointer', transition:'all 0.15s', fontFamily:'inherit' }}>
+                  {tag}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      <div style={{ padding:'12px 28px 36px' }}>
+        <Btn onClick={onNext} disabled={!data.displayName}>Continue <Icon name="arrow" size={16} color="#fff"/></Btn>
+      </div>
+    </div>
+  );
+}
+
+// Step 2: Location permission
+function OnboardStep2({ onNext, onSkip }) {
+  const [requesting, setRequesting] = useState(false);
+  const [granted, setGranted] = useState(false);
+
+  async function handleAllow() {
+    setRequesting(true);
+    await new Promise(r => setTimeout(r, 1600));
+    setGranted(true);
+    setRequesting(false);
+    setTimeout(onNext, 800);
+  }
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', animation:'fadeUp 0.3s ease' }}>
+      <StatusBar/>
+      <div style={{ flex:1, padding:'24px 28px', display:'flex', flexDirection:'column' }}>
+        <Wordmark size="sm"/>
+        <div style={{ marginTop:28, marginBottom:24 }}>
+          <OnboardProgress step={2}/>
+        </div>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', textAlign:'center', gap:0 }}>
+          {/* Location graphic */}
+          <div style={{ width:140, height:140, borderRadius:'50%', background:C.accentL, border:`2px solid ${C.accent}33`, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', marginBottom:28 }}>
+            <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:`2px solid ${C.accent}22`, animation:'ping 2s ease-in-out infinite' }}/>
+            <div style={{ position:'absolute', inset:-20, borderRadius:'50%', border:`2px solid ${C.accent}11`, animation:'ping 2s ease-in-out infinite 0.5s' }}/>
+            {granted
+              ? <Icon name="check" size={52} color={C.success}/>
+              : <Icon name="location" size={52} color={C.accent}/>
+            }
+          </div>
+          <h2 style={{ fontSize:24, fontWeight:800, color:C.text, letterSpacing:'-0.03em', marginBottom:10 }}>
+            {granted ? 'Location enabled!' : 'Enable location'}
+          </h2>
+          <p style={{ color:C.muted, fontSize:14, lineHeight:1.7, maxWidth:280 }}>
+            {granted
+              ? 'You can now discover and be discovered by people nearby.'
+              : 'LinkUp uses your location to show you people nearby and let them find you. Your location is only shared while the app is open.'}
+          </p>
+          <div style={{ marginTop:24, background:C.surface, borderRadius:16, padding:'14px 18px', width:'100%', display:'flex', gap:12, alignItems:'flex-start', textAlign:'left' }}>
+            <Icon name="shield" size={20} color={C.accent}/>
+            <p style={{ color:C.muted, fontSize:12, lineHeight:1.6 }}>
+              <span style={{ color:C.text, fontWeight:600 }}>Privacy first.</span> You control your visibility. Turn it off anytime in settings.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div style={{ padding:'12px 28px 36px', display:'flex', flexDirection:'column', gap:10 }}>
+        <Btn onClick={handleAllow} loading={requesting} disabled={granted}>
+          {granted ? <><Icon name="check" size={16} color="#fff"/> Location Active</> : 'Allow Location Access'}
+        </Btn>
+        {!granted && <Btn variant="ghost" onClick={onSkip}>Not now</Btn>}
+      </div>
+    </div>
+  );
+}
+
+// Step 3: Privacy settings
+function OnboardStep3({ data, onChange, onNext }) {
+  const Toggle = ({ label, sub, val, onToggle }) => (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:`1px solid ${C.border}` }}>
+      <div>
+        <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{label}</p>
+        {sub && <p style={{ color:C.muted, fontSize:12, marginTop:2 }}>{sub}</p>}
+      </div>
+      <div onClick={onToggle} style={{ width:46, height:26, borderRadius:13, background:val?C.accent:C.border, cursor:'pointer', position:'relative', transition:'background 0.2s', flexShrink:0 }}>
+        <div style={{ position:'absolute', top:3, left:val?22:3, width:20, height:20, borderRadius:'50%', background:'#fff', transition:'left 0.2s', boxShadow:'0 1px 4px rgba(0,0,0,0.3)' }}/>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', animation:'fadeUp 0.3s ease' }}>
+      <StatusBar/>
+      <div style={{ flex:1, padding:'24px 28px', overflow:'auto' }}>
+        <Wordmark size="sm"/>
+        <div style={{ marginTop:28, marginBottom:24 }}>
+          <OnboardProgress step={3}/>
+          <h2 style={{ fontSize:24, fontWeight:800, color:C.text, letterSpacing:'-0.03em', marginBottom:6 }}>Privacy settings</h2>
+          <p style={{ color:C.muted, fontSize:14, lineHeight:1.6 }}>You're in control. Change these anytime.</p>
+        </div>
+
+        <Toggle label="Show me on the map" sub="Others nearby can see your pin" val={data.locationVisible} onToggle={()=>onChange('locationVisible',!data.locationVisible)}/>
+        <Toggle label="Public profile" sub="Anyone can view your profile" val={data.profileVisible} onToggle={()=>onChange('profileVisible',!data.profileVisible)}/>
+        <Toggle label="Meetup requests" sub="Allow others to send you meetup invites" val={data.meetupRequests} onToggle={()=>onChange('meetupRequests',!data.meetupRequests)}/>
+        <Toggle label="Activity status" sub="Show when you were last active" val={data.activityStatus} onToggle={()=>onChange('activityStatus',!data.activityStatus)}/>
+
+        <div style={{ background:C.surface, borderRadius:16, padding:16, marginTop:20 }}>
+          <p style={{ color:C.muted, fontSize:12, lineHeight:1.7 }}>
+            <span style={{ color:C.accent, fontWeight:700 }}>Tip:</span> Keeping your profile public helps you meet more people and earn bonus XP from first-time meetups.
+          </p>
+        </div>
+      </div>
+      <div style={{ padding:'12px 28px 36px' }}>
+        <Btn onClick={onNext}>Save & Continue <Icon name="arrow" size={16} color="#fff"/></Btn>
+      </div>
+    </div>
+  );
+}
+
+// Step 4: All set!
+function OnboardStep4({ data, onDone }) {
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'0 32px', textAlign:'center', animation:'fadeUp 0.3s ease' }}>
+      <OnboardProgress step={4}/>
+      <div style={{ width:100, height:100, borderRadius:'50%', background:C.accentL, border:`2px solid ${C.accent}55`, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:24, position:'relative' }}>
+        <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:`2px solid ${C.accent}22`, animation:'ping 2s ease infinite' }}/>
+        <span style={{ fontSize:44 }}>🎉</span>
+      </div>
+      <h2 style={{ fontSize:26, fontWeight:800, color:C.text, letterSpacing:'-0.03em', marginBottom:8 }}>
+        You're ready, {data.displayName}!
+      </h2>
+      <p style={{ color:C.muted, fontSize:14, lineHeight:1.7, marginBottom:12 }}>
+        Your profile is live. Start exploring the map to find people nearby.
+      </p>
+
+      {/* Starter rewards */}
+      <div style={{ background:C.surface, borderRadius:20, padding:'16px 20px', width:'100%', marginBottom:28 }}>
+        <p style={{ color:C.muted, fontSize:12, fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', marginBottom:12 }}>Starter rewards unlocked</p>
+        <div style={{ display:'flex', justifyContent:'space-around' }}>
+          {[{emoji:'⚡',val:'50 XP',label:'Welcome bonus'},{emoji:'🪙',val:'20 coins',label:'First login'},{emoji:'🎯',val:'Daily quest',label:'Ready to earn'}].map(r=>(
+            <div key={r.label} style={{ textAlign:'center' }}>
+              <div style={{ fontSize:24, marginBottom:4 }}>{r.emoji}</div>
+              <p style={{ color:C.accent, fontWeight:700, fontSize:13 }}>{r.val}</p>
+              <p style={{ color:C.muted, fontSize:11 }}>{r.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Btn onClick={onDone}>Open the Map <Icon name="map" size={16} color="#fff"/></Btn>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN APP SCREENS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Map Screen ────────────────────────────────────────────────────────────────
+function MapScreen({ user, onSelectUser }) {
+  const [selectedPin, setSelectedPin] = useState(null);
+  const [radius, setRadius] = useState(1000);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  const filtered = MOCK_NEARBY.filter(u => u.distance_m <= radius);
+
+  // Fake pin positions on the map canvas
+  const pins = [
+    { ...MOCK_NEARBY[0], x:50,  y:52  },
+    { ...MOCK_NEARBY[1], x:68,  y:38  },
+    { ...MOCK_NEARBY[2], x:30,  y:65  },
+    { ...MOCK_NEARBY[3], x:75,  y:62  },
+    { ...MOCK_NEARBY[4], x:44,  y:32  },
+  ];
+
+  function fmtDist(m) { return m < 1000 ? `${m}m` : `${(m/1000).toFixed(1)}km`; }
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+
+      {/* Header */}
+      <div style={{ padding:'12px 20px 10px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <Wordmark size="sm"/>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <div style={{ background:C.accentL, border:`1px solid ${C.accent}44`, borderRadius:20, padding:'4px 10px', display:'flex', alignItems:'center', gap:5 }}>
+            <Icon name="zap" size={13} color={C.accent}/>
+            <span style={{ fontSize:13, color:C.accent, fontWeight:700 }}>50 XP</span>
+          </div>
+          <Avatar name={user?.displayName||'You'} color={C.accent} size={34}/>
+        </div>
+      </div>
+
+      {/* Map area */}
+      <div style={{ flex:1, position:'relative', overflow:'hidden', margin:'0 16px', borderRadius:24, border:`1px solid ${C.border}` }}>
+
+        {/* Grid background */}
+        <div style={{ position:'absolute', inset:0, background:C.surface }}>
+          {[...Array(12)].map((_,i)=><div key={i} style={{ position:'absolute', left:0, right:0, height:1, background:C.border, top:`${(i+1)*8.33}%` }}/>)}
+          {[...Array(12)].map((_,i)=><div key={i} style={{ position:'absolute', top:0, bottom:0, width:1, background:C.border, left:`${(i+1)*8.33}%` }}/>)}
+        </div>
+
+        {/* Roads (stylized) */}
+        <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} viewBox="0 0 390 420" preserveAspectRatio="none">
+          <path d="M0 210 Q100 200 195 210 Q290 220 390 210" stroke="oklch(22% 0.02 265)" strokeWidth="12" fill="none"/>
+          <path d="M195 0 Q200 100 195 210 Q190 310 195 420" stroke="oklch(22% 0.02 265)" strokeWidth="12" fill="none"/>
+          <path d="M0 320 Q130 315 195 310 Q270 305 390 320" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M0 100 Q160 95 195 100 Q240 105 390 95" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M80 0 Q85 130 80 210 Q75 300 80 420" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M310 0 Q305 130 310 210 Q315 300 310 420" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          {/* Road dashes */}
+          <path d="M0 210 Q100 200 195 210 Q290 220 390 210" stroke={C.border} strokeWidth="1" strokeDasharray="16 10" fill="none"/>
+          <path d="M195 0 Q200 100 195 210 Q190 310 195 420" stroke={C.border} strokeWidth="1" strokeDasharray="16 10" fill="none"/>
+          {/* Buildings */}
+          {[[20,130,40,35,'oklch(18% 0.015 265)'],[100,50,55,45,'oklch(19% 0.015 265)'],[240,130,45,30,'oklch(17% 0.015 265)'],[320,240,40,50,'oklch(18% 0.015 265)'],[30,280,50,40,'oklch(19% 0.015 265)'],[120,330,35,30,'oklch(17% 0.015 265)'],[250,340,55,35,'oklch(18% 0.015 265)'],[330,50,45,40,'oklch(19% 0.015 265)']].map(([x,y,w,h,bg],i)=>(
+            <rect key={i} x={x} y={y} width={w} height={h} rx="4" fill={bg} stroke={C.border} strokeWidth="0.5"/>
+          ))}
+        </svg>
+
+        {/* Radius ring */}
+        <div style={{ position:'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)', width:`${radius/5}px`, height:`${radius/5}px`, borderRadius:'50%', border:`1.5px dashed ${C.accent}44`, background:`${C.accent}06`, pointerEvents:'none', transition:'all 0.4s' }}/>
+
+        {/* Me pin */}
+        <div style={{ position:'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)', zIndex:10 }}>
+          <div style={{ position:'absolute', inset:-8, borderRadius:'50%', background:`${C.accent}20`, animation:'ping 2s ease-in-out infinite' }}/>
+          <div style={{ width:18, height:18, borderRadius:'50%', background:C.accent, border:`3px solid ${C.bg}`, boxShadow:`0 0 0 2px ${C.accent}55` }}/>
+        </div>
+
+        {/* User pins */}
+        {pins.filter(p=>p.distance_m<=radius).map(pin => (
+          <div key={pin.id} onClick={()=>{ setSelectedPin(pin); onSelectUser(pin); }} style={{ position:'absolute', left:`${pin.x}%`, top:`${pin.y}%`, transform:'translate(-50%,-100%)', cursor:'pointer', zIndex:5, transition:'transform 0.1s' }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+              <div style={{ width:36, height:36, borderRadius:'50%', background:pin.color, border:`2.5px solid ${C.bg}`, boxShadow:`0 2px 8px rgba(0,0,0,0.4)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#fff', transition:'transform 0.1s', transform: selectedPin?.id===pin.id?'scale(1.2)':'scale(1)' }}>
+                {pin.display_name[0]}
+              </div>
+              <div style={{ width:2, height:6, background:pin.color, marginTop:-1 }}/>
+            </div>
+          </div>
+        ))}
+
+        {/* Radius selector */}
+        <div style={{ position:'absolute', top:12, right:12, background:`${C.bg}dd`, backdropFilter:'blur(8px)', borderRadius:12, padding:'8px 12px', border:`1px solid ${C.border}` }}>
+          <p style={{ color:C.muted, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>Radius</p>
+          <div style={{ display:'flex', gap:4 }}>
+            {[500,1000,2000].map(r=>(
+              <button key={r} onClick={()=>setRadius(r)} style={{ padding:'3px 8px', borderRadius:6, border:`1px solid ${radius===r?C.accent:C.border}`, background: radius===r?C.accentL:'none', color: radius===r?C.accent:C.muted, fontSize:10, fontWeight:700, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}>
+                {r<1000?`${r}m`:`${r/1000}km`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Count badge */}
+        <div style={{ position:'absolute', top:12, left:12, background:`${C.bg}dd`, backdropFilter:'blur(8px)', borderRadius:10, padding:'6px 10px', border:`1px solid ${C.border}` }}>
+          <p style={{ color:C.accent, fontSize:12, fontWeight:700 }}>{filtered.length} nearby</p>
+        </div>
+      </div>
+
+      {/* Nearby list (peek) */}
+      <div style={{ padding:'12px 16px 0', flexShrink:0 }}>
+        <div style={{ display:'flex', gap:10, overflowX:'auto', paddingBottom:12 }}>
+          {filtered.map(u=>(
+            <div key={u.id} onClick={()=>{ setSelectedPin(u); onSelectUser(u); }} style={{ flexShrink:0, width:120, background:C.surface, borderRadius:16, padding:12, border:`1.5px solid ${selectedPin?.id===u.id?C.accent:C.border}`, cursor:'pointer', transition:'all 0.15s' }}>
+              <Avatar name={u.display_name} color={u.color} size={36}/>
+              <p style={{ color:C.text, fontWeight:700, fontSize:12, marginTop:8, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.display_name}</p>
+              <div style={{ display:'flex', gap:4, marginTop:4, alignItems:'center' }}>
+                <Icon name="location" size={11} color={C.muted}/>
+                <span style={{ color:C.muted, fontSize:11 }}>{fmtDist(u.distance_m)}</span>
+              </div>
+              <div style={{ marginTop:6, background:C.accentG, borderRadius:6, padding:'2px 6px', display:'inline-block' }}>
+                <span style={{ color:C.accent, fontSize:10, fontWeight:700 }}>Lv {u.level}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── User Detail Sheet ─────────────────────────────────────────────────────────
+function UserSheet({ user, onClose }) {
+  const [sent, setSent] = useState(false);
+  if (!user) return null;
+  return (
+    <div style={{ position:'absolute', inset:0, zIndex:50, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)' }}/>
+      <div style={{ position:'relative', background:C.surface, borderRadius:'24px 24px 0 0', padding:'0 24px 40px', animation:'slideUp 0.3s ease', border:`1px solid ${C.border}` }}>
+        <div style={{ width:36, height:4, borderRadius:99, background:C.border, margin:'12px auto 20px' }}/>
+        <div style={{ display:'flex', gap:14, alignItems:'flex-start', marginBottom:16 }}>
+          <Avatar name={user.display_name} color={user.color} size={60}/>
+          <div style={{ flex:1 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <h3 style={{ color:C.text, fontWeight:800, fontSize:18 }}>{user.display_name}</h3>
+              <span style={{ background:C.accentL, color:C.accent, fontSize:11, fontWeight:700, borderRadius:6, padding:'2px 7px' }}>Lv {user.level}</span>
+            </div>
+            <p style={{ color:C.muted, fontSize:13, marginTop:2 }}>@{user.username}</p>
+            <div style={{ display:'flex', gap:12, marginTop:8 }}>
+              <div style={{ textAlign:'center' }}>
+                <p style={{ color:C.text, fontWeight:700, fontSize:14 }}>{user.xp}</p>
+                <p style={{ color:C.muted, fontSize:11 }}>XP</p>
+              </div>
+              <div style={{ width:1, background:C.border }}/>
+              <div style={{ textAlign:'center' }}>
+                <p style={{ color:C.text, fontWeight:700, fontSize:14 }}>{user.distance_m < 1000 ? `${user.distance_m}m` : `${(user.distance_m/1000).toFixed(1)}km`}</p>
+                <p style={{ color:C.muted, fontSize:11 }}>Away</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {user.bio && <p style={{ color:C.muted, fontSize:14, lineHeight:1.6, marginBottom:20, background:C.raised, borderRadius:12, padding:'12px 14px' }}>{user.bio}</p>}
+
+        <div style={{ display:'flex', gap:10 }}>
+          <Btn onClick={()=>setSent(true)} disabled={sent} style={{ flex:1 }}>
+            {sent ? <><Icon name="check" size={16} color="#fff"/> Request Sent</> : '👋 LinkUp Request'}
+          </Btn>
+          <Btn variant="ghost" full={false} style={{ width:50 }}>
+            <Icon name="star" size={18} color={C.muted}/>
+          </Btn>
+        </div>
+        {sent && <p style={{ color:C.success, fontSize:12, textAlign:'center', marginTop:10, fontWeight:600 }}>+5 XP for reaching out!</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── People Screen ─────────────────────────────────────────────────────────────
+function PeopleScreen({ onSelectUser }) {
+  function fmtDist(m) { return m < 1000 ? `${m}m` : `${(m/1000).toFixed(1)}km`; }
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'14px 20px 12px' }}>
+        <h2 style={{ color:C.text, fontWeight:800, fontSize:20, letterSpacing:'-0.02em' }}>Nearby People</h2>
+        <p style={{ color:C.muted, fontSize:13, marginTop:2 }}>Updated just now · {MOCK_NEARBY.length} within 2km</p>
+      </div>
+      <div style={{ flex:1, overflow:'auto', padding:'0 16px' }}>
+        {MOCK_NEARBY.map((u,i) => (
+          <div key={u.id} onClick={()=>onSelectUser(u)} style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 14px', background:C.surface, borderRadius:16, marginBottom:10, border:`1px solid ${C.border}`, cursor:'pointer', animation:`fadeUp 0.3s ease ${i*0.06}s both` }}>
+            <div style={{ position:'relative' }}>
+              <Avatar name={u.display_name} color={u.color} size={50}/>
+              <div style={{ position:'absolute', bottom:1, right:1, width:11, height:11, borderRadius:'50%', background:C.success, border:`2px solid ${C.surface}` }}/>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <p style={{ color:C.text, fontWeight:700, fontSize:15 }}>{u.display_name}</p>
+                <span style={{ background:C.accentG, color:C.accent, fontSize:10, fontWeight:700, borderRadius:5, padding:'1px 6px', flexShrink:0 }}>Lv {u.level}</span>
+              </div>
+              <p style={{ color:C.muted, fontSize:12, marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.bio}</p>
+              <div style={{ display:'flex', gap:4, marginTop:4, alignItems:'center' }}>
+                <Icon name="location" size={11} color={C.muted}/>
+                <span style={{ color:C.muted, fontSize:11 }}>{fmtDist(u.distance_m)} away</span>
+                <span style={{ color:C.border }}>·</span>
+                <Icon name="zap" size={11} color={C.muted}/>
+                <span style={{ color:C.muted, fontSize:11 }}>{u.xp} XP</span>
+              </div>
+            </div>
+            <Icon name="arrow" size={16} color={C.muted}/>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Profile Screen ─────────────────────────────────────────────────────────────
+function ProfileScreen({ user }) {
+  const stats = [
+    { label:'XP',      val:'50',   icon:'zap' },
+    { label:'Level',   val:'1',    icon:'star' },
+    { label:'Meetups', val:'0',    icon:'people' },
+    { label:'Coins',   val:'20',   icon:'shop' },
+  ];
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ flex:1, overflow:'auto' }}>
+        {/* Cover */}
+        <div style={{ height:120, background:`linear-gradient(135deg, ${C.accent}88, oklch(62% 0.22 55) 60%, oklch(62% 0.18 295))`, position:'relative' }}>
+          <div style={{ position:'absolute', inset:0, background:`repeating-linear-gradient(45deg, transparent, transparent 20px, oklch(100% 0 0 / 0.04) 20px, oklch(100% 0 0 / 0.04) 40px)` }}/>
+        </div>
+
+        {/* Avatar */}
+        <div style={{ padding:'0 24px', marginTop:-36 }}>
+          <div style={{ width:72, height:72, borderRadius:'50%', background:`linear-gradient(135deg, ${C.accent}, oklch(62% 0.22 55))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, fontWeight:800, color:'#fff', border:`3px solid ${C.bg}`, boxShadow:`0 4px 14px rgba(0,0,0,0.4)`, marginBottom:12 }}>
+            {user?.displayName?.[0]?.toUpperCase() || 'Y'}
+          </div>
+          <h2 style={{ color:C.text, fontWeight:800, fontSize:20 }}>{user?.displayName || 'You'}</h2>
+          <p style={{ color:C.muted, fontSize:13, marginTop:2 }}>@{user?.username || 'yourhandle'}</p>
+          {user?.bio && <p style={{ color:C.muted, fontSize:13, marginTop:8, lineHeight:1.6 }}>{user.bio}</p>}
+        </div>
+
+        {/* Stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, margin:'20px 16px' }}>
+          {stats.map(s=>(
+            <div key={s.label} style={{ background:C.surface, borderRadius:14, padding:'12px 8px', textAlign:'center', border:`1px solid ${C.border}` }}>
+              <p style={{ color:C.text, fontWeight:800, fontSize:18 }}>{s.val}</p>
+              <p style={{ color:C.muted, fontSize:10, marginTop:2 }}>{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Badges */}
+        <div style={{ margin:'0 16px 16px' }}>
+          <p style={{ color:C.muted, fontSize:11, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:10 }}>Badges</p>
+          <div style={{ display:'flex', gap:10 }}>
+            {[{e:'🌟',l:'New Arrival'},{e:'📍',l:'First Pin'},{e:'👋',l:'First Link'}].map(b=>(
+              <div key={b.l} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'10px 12px', textAlign:'center', flex:1 }}>
+                <div style={{ fontSize:22 }}>{b.e}</div>
+                <p style={{ color:C.muted, fontSize:10, marginTop:4 }}>{b.l}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Interests */}
+        {user?.interests?.length > 0 && (
+          <div style={{ margin:'0 16px 20px' }}>
+            <p style={{ color:C.muted, fontSize:11, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:10 }}>Interests</p>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+              {user.interests.map(tag=>(
+                <span key={tag} style={{ padding:'5px 12px', borderRadius:20, background:C.accentL, color:C.accent, fontSize:12, fontWeight:600, border:`1px solid ${C.accent}33` }}>{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Quests Screen ─────────────────────────────────────────────────────────────
+function QuestsScreen() {
+  const quests = [
+    { title:'First LinkUp', desc:'Send a meetup request to someone nearby', reward:'50 XP', done:false, progress:0, total:1, emoji:'👋' },
+    { title:'Explorer',     desc:'Open the map 3 days in a row',           reward:'30 XP + badge', done:false, progress:1, total:3, emoji:'🗺️' },
+    { title:'Social Butterfly', desc:'Meet 5 different people this week',  reward:'200 XP', done:false, progress:0, total:5, emoji:'🦋' },
+    { title:'Early Adopter', desc:'Create your account',                   reward:'20 coins', done:true, progress:1, total:1, emoji:'⭐' },
+  ];
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'14px 20px 12px' }}>
+        <h2 style={{ color:C.text, fontWeight:800, fontSize:20, letterSpacing:'-0.02em' }}>Daily Quests</h2>
+        <p style={{ color:C.muted, fontSize:13, marginTop:2 }}>Resets in 14h 32m</p>
+      </div>
+      <div style={{ flex:1, overflow:'auto', padding:'0 16px' }}>
+        {quests.map((q,i)=>(
+          <div key={q.title} style={{ background: q.done?'oklch(62% 0.18 145 / 0.08)':C.surface, borderRadius:18, padding:'16px', marginBottom:10, border:`1.5px solid ${q.done?'oklch(62% 0.18 145 / 0.3)':C.border}`, animation:`fadeUp 0.3s ease ${i*0.07}s both` }}>
+            <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+              <div style={{ fontSize:26, flexShrink:0 }}>{q.emoji}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <p style={{ color: q.done?C.success:C.text, fontWeight:700, fontSize:15 }}>{q.title}</p>
+                  <span style={{ background: q.done?'oklch(62% 0.18 145 / 0.15)':C.accentG, color: q.done?C.success:C.accent, fontSize:11, fontWeight:700, borderRadius:8, padding:'3px 8px' }}>{q.reward}</span>
+                </div>
+                <p style={{ color:C.muted, fontSize:12, marginTop:3, lineHeight:1.5 }}>{q.desc}</p>
+                <div style={{ marginTop:10 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                    <span style={{ color:C.muted, fontSize:11 }}>{q.progress}/{q.total}</span>
+                    {q.done && <span style={{ color:C.success, fontSize:11, fontWeight:700 }}>✓ Complete</span>}
+                  </div>
+                  <div style={{ height:4, background:C.border, borderRadius:99 }}>
+                    <div style={{ height:'100%', width:`${(q.progress/q.total)*100}%`, background: q.done?C.success:C.accent, borderRadius:99, transition:'width 0.5s' }}/>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH SCREENS (Phase 1, kept)
+// ─────────────────────────────────────────────────────────────────────────────
+function PasswordStrength({ password }) {
+  const checks = [{ label:'8+ chars', ok:password.length>=8 },{ label:'Uppercase', ok:/[A-Z]/.test(password) },{ label:'Number', ok:/[0-9]/.test(password) }];
+  const score = checks.filter(c=>c.ok).length;
+  const colors = ['',C.error,'oklch(62% 0.2 55)',C.success];
+  if (!password) return null;
+  return (
+    <div style={{ marginTop:-8, marginBottom:16 }}>
+      <div style={{ display:'flex', gap:4, marginBottom:6 }}>{[0,1,2].map(i=><div key={i} style={{ flex:1, height:3, borderRadius:99, background:i<score?colors[score]:C.border, transition:'all 0.3s' }}/>)}</div>
+      <div style={{ display:'flex', gap:12 }}>{checks.map(c=><span key={c.label} style={{ fontSize:11, color:c.ok?C.success:C.muted, display:'flex', alignItems:'center', gap:3 }}>{c.ok&&<Icon name="check" size={11} color={C.success}/>}{c.label}</span>)}</div>
+    </div>
+  );
+}
+
+function SplashScreen({ onNavigate }) {
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', padding:'0 28px 48px' }}>
+      <StatusBar/>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', alignItems:'center', gap:24 }}>
+        <div style={{ width:220, height:220, borderRadius:44, background:C.surface, border:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', overflow:'hidden' }}>
+          {[...Array(6)].map((_,i)=><div key={i} style={{ position:'absolute', left:0, right:0, height:1, background:C.border, top:`${(i+1)*32}px` }}/>)}
+          {[...Array(6)].map((_,i)=><div key={i} style={{ position:'absolute', top:0, bottom:0, width:1, background:C.border, left:`${(i+1)*32}px` }}/>)}
+          {[{x:75,y:88,big:true},{x:138,y:132},{x:58,y:155},{x:162,y:74}].map((p,i)=>(
+            <div key={i} style={{ position:'absolute', left:p.x, top:p.y, transform:'translate(-50%,-50%)' }}>
+              <div style={{ width:p.big?36:22, height:p.big?36:22, borderRadius:'50%', background:p.big?C.accent:`oklch(62% 0.22 ${28+i*60} / 0.7)`, border:`2px solid ${C.bg}`, boxShadow:`0 2px 8px ${C.accent}44`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {p.big&&<div style={{ width:10, height:10, borderRadius:'50%', background:'#fff' }}/>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ textAlign:'center' }}>
+          <Wordmark size="lg"/>
+          <p style={{ color:C.muted, fontSize:15, marginTop:10, lineHeight:1.6, maxWidth:250, margin:'10px auto 0' }}>Meet real people nearby. Earn points. Build your world.</p>
+        </div>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <Btn onClick={()=>onNavigate('signup')}>Get Started</Btn>
+        <Btn variant="ghost" onClick={()=>onNavigate('login')}>I have an account</Btn>
+      </div>
+    </div>
+  );
+}
+
+function SignupScreen({ onNavigate, onComplete }) {
+  const [form, setForm] = useState({ email:'', username:'', password:'' });
+  const [showPw, setShowPw] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+  function validate() {
+    const e = {};
+    if (!form.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) e.email='Valid email required.';
+    if (form.username.length<3) e.username='3+ characters required.';
+    if (!/[A-Z]/.test(form.password)||!/[0-9]/.test(form.password)||form.password.length<8) e.password='8+ chars, uppercase & number.';
+    setErrors(e); return Object.keys(e).length===0;
+  }
+  async function handleSubmit() {
+    if (!validate()) return;
+    setLoading(true);
+    await new Promise(r=>setTimeout(r,1200));
+    setLoading(false);
+    onComplete({ username: form.username });
+  }
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'18px 28px 0', display:'flex', alignItems:'center', gap:12 }}>
+        <button onClick={()=>onNavigate('splash')} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><Icon name="back" size={20} color={C.muted}/></button>
+        <Wordmark size="sm"/>
+      </div>
+      <div style={{ flex:1, overflow:'auto', padding:'24px 28px 0' }}>
+        <h1 style={{ fontSize:24, fontWeight:800, color:C.text, letterSpacing:'-0.03em', marginBottom:4 }}>Create account</h1>
+        <p style={{ color:C.muted, fontSize:14, marginBottom:24 }}>Start linking up with people around you.</p>
+        <Field label="Email" icon="mail" type="email" value={form.email} onChange={set('email')} placeholder="you@example.com" error={errors.email}/>
+        <Field label="Username" icon="user" value={form.username} onChange={set('username')} placeholder="yourhandle" error={errors.username}/>
+        <Field label="Password" icon="lock" type={showPw?'text':'password'} value={form.password} onChange={set('password')} placeholder="Min 8 chars" error={errors.password}
+          suffix={<button onClick={()=>setShowPw(v=>!v)} style={{ background:'none', border:'none', cursor:'pointer', padding:4, display:'flex' }}><Icon name={showPw?'eyeOff':'eye'} size={17} color={C.muted}/></button>}/>
+        <PasswordStrength password={form.password}/>
+        <p style={{ fontSize:12, color:C.muted, textAlign:'center', marginBottom:16, lineHeight:1.6 }}>By continuing you agree to our <span style={{color:C.accent,cursor:'pointer'}}>Terms</span> & <span style={{color:C.accent,cursor:'pointer'}}>Privacy Policy</span>.</p>
+      </div>
+      <div style={{ padding:'12px 28px 36px' }}>
+        <Btn onClick={handleSubmit} loading={loading}>Create Account</Btn>
+        <p style={{ textAlign:'center', color:C.muted, fontSize:14, marginTop:14 }}>Already have an account? <span onClick={()=>onNavigate('login')} style={{ color:C.accent, fontWeight:600, cursor:'pointer' }}>Sign in</span></p>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onNavigate, onComplete }) {
+  const [form, setForm] = useState({ identifier:'', password:'' });
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
+  async function handleLogin() {
+    if (!form.identifier||!form.password) { setError('Please fill in all fields.'); return; }
+    setError(''); setLoading(true);
+    await new Promise(r=>setTimeout(r,1100));
+    setLoading(false);
+    onComplete({ username: form.identifier });
+  }
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'18px 28px 0', display:'flex', alignItems:'center', gap:12 }}>
+        <button onClick={()=>onNavigate('splash')} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><Icon name="back" size={20} color={C.muted}/></button>
+        <Wordmark size="sm"/>
+      </div>
+      <div style={{ flex:1, padding:'24px 28px 0' }}>
+        <h1 style={{ fontSize:24, fontWeight:800, color:C.text, letterSpacing:'-0.03em', marginBottom:4 }}>Welcome back</h1>
+        <p style={{ color:C.muted, fontSize:14, marginBottom:24 }}>Sign in to continue linking up.</p>
+        <Field label="Email or Username" icon="user" value={form.identifier} onChange={set('identifier')} placeholder="you@example.com or yourhandle"/>
+        <Field label="Password" icon="lock" type={showPw?'text':'password'} value={form.password} onChange={set('password')} placeholder="Your password"
+          suffix={<button onClick={()=>setShowPw(v=>!v)} style={{ background:'none', border:'none', cursor:'pointer', padding:4, display:'flex' }}><Icon name={showPw?'eyeOff':'eye'} size={17} color={C.muted}/></button>}/>
+        {error&&<div style={{ background:`${C.error}18`, border:`1px solid ${C.error}44`, borderRadius:10, padding:'9px 12px', marginBottom:14 }}><p style={{ color:C.error, fontSize:13, fontWeight:500 }}>{error}</p></div>}
+        <div style={{ textAlign:'right', marginBottom:20 }}><span style={{ color:C.accent, fontSize:13, fontWeight:600, cursor:'pointer' }}>Forgot password?</span></div>
+      </div>
+      <div style={{ padding:'0 28px 36px' }}>
+        <Btn onClick={handleLogin} loading={loading}>Sign In <Icon name="arrow" size={16} color="#fff"/></Btn>
+        <p style={{ textAlign:'center', color:C.muted, fontSize:14, marginTop:14 }}>No account? <span onClick={()=>onNavigate('signup')} style={{ color:C.accent, fontWeight:600, cursor:'pointer' }}>Sign up</span></p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT APP
+// ─────────────────────────────────────────────────────────────────────────────
+function App() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('lu2_state')||'{}'); } catch { return {}; } })();
+
+  const [screen,  setScreen]  = useState(saved.screen  || 'splash');
+  const [obStep,  setObStep]  = useState(saved.obStep  || 1);
+  const [tab,     setTab]     = useState(saved.tab     || 'map');
+  const [user,    setUser]    = useState(saved.user    || null);
+  const [sheetUser, setSheetUser] = useState(null);
+
+  const [obData, setObData] = useState({
+    displayName:'', bio:'', interests:[],
+    locationVisible:true, profileVisible:true, meetupRequests:true, activityStatus:true,
+  });
+
+  function persist(updates) {
+    const next = { screen, obStep, tab, user, ...updates };
+    localStorage.setItem('lu2_state', JSON.stringify(next));
+  }
+
+  function navigate(s) { setScreen(s); persist({ screen:s }); }
+  function goTab(t)    { setTab(t);    persist({ tab:t }); }
+
+  function handleAuthComplete(authUser) {
+    setUser(authUser);
+    setScreen('onboard');
+    persist({ screen:'onboard', user:authUser });
+  }
+
+  function obChange(k, v) {
+    setObData(d => ({ ...d, [k]:v }));
+  }
+
+  function finishOnboard() {
+    const fullUser = { ...user, ...obData };
+    setUser(fullUser);
+    setScreen('app');
+    setTab('map');
+    persist({ screen:'app', tab:'map', user:fullUser });
+  }
+
+  // ONBOARDING FLOW
+  if (screen === 'onboard') {
+    const steps = {
+      1: <OnboardStep1 data={obData} onChange={obChange} onNext={()=>{ setObStep(2); persist({obStep:2}); }}/>,
+      2: <OnboardStep2 onNext={()=>{ setObStep(3); persist({obStep:3}); }} onSkip={()=>{ setObStep(3); persist({obStep:3}); }}/>,
+      3: <OnboardStep3 data={obData} onChange={obChange} onNext={()=>{ setObStep(4); persist({obStep:4}); }}/>,
+      4: <OnboardStep4 data={obData} onDone={finishOnboard}/>,
+    };
+    return (
+      <Wrap>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}} @keyframes ping{0%,100%{transform:scale(1);opacity:0.7}50%{transform:scale(1.5);opacity:0}} @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}} *{-webkit-tap-highlight-color:transparent} input::placeholder,textarea::placeholder{color:oklch(38% 0.01 265)} ::-webkit-scrollbar{width:0} textarea{resize:none}`}</style>
+        {steps[obStep] || steps[1]}
+      </Wrap>
+    );
+  }
+
+  // AUTH FLOW
+  if (screen !== 'app') {
+    return (
+      <Wrap>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}} *{-webkit-tap-highlight-color:transparent} input::placeholder{color:oklch(38% 0.01 265)} ::-webkit-scrollbar{width:0}`}</style>
+        {screen==='splash' && <SplashScreen onNavigate={navigate}/>}
+        {screen==='signup' && <SignupScreen onNavigate={navigate} onComplete={handleAuthComplete}/>}
+        {screen==='login'  && <LoginScreen  onNavigate={navigate} onComplete={handleAuthComplete}/>}
+      </Wrap>
+    );
+  }
+
+  // MAIN APP
+  const tabScreens = {
+    map:     <MapScreen user={user} onSelectUser={u=>setSheetUser(u)}/>,
+    people:  <PeopleScreen onSelectUser={u=>setSheetUser(u)}/>,
+    quests:  <QuestsScreen/>,
+    shop:    <ShopScreen/>,
+    profile: <ProfileScreen user={user}/>,
+  };
+
+  return (
+    <Wrap>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}} @keyframes ping{0%,100%{transform:scale(1);opacity:0.7}50%{transform:scale(1.55);opacity:0}} @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}} *{-webkit-tap-highlight-color:transparent} input::placeholder{color:oklch(38% 0.01 265)} ::-webkit-scrollbar{width:0}`}</style>
+      <div style={{ height:'100%', display:'flex', flexDirection:'column', position:'relative' }}>
+        <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
+          {tabScreens[tab]}
+          {sheetUser && <UserSheet user={sheetUser} onClose={()=>setSheetUser(null)}/>}
+        </div>
+        <BottomNav active={tab} onTab={t=>{ setSheetUser(null); goTab(t); }}/>
+      </div>
+    </Wrap>
+  );
+}
+
+function ShopScreen() {
+  const items = [
+    { name:'Profile Boost',  desc:'Show up first in nearby lists for 24h', cost:50,  emoji:'🚀' },
+    { name:'Stealth Mode',   desc:'Browse the map invisibly for 1 hour',   cost:30,  emoji:'👻' },
+    { name:'XP Multiplier',  desc:'2× XP on all meetups for 1 day',        cost:100, emoji:'⚡' },
+    { name:'Custom Badge',   desc:'Unlock an exclusive profile badge',      cost:200, emoji:'🏅' },
+  ];
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'14px 20px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <h2 style={{ color:C.text, fontWeight:800, fontSize:20, letterSpacing:'-0.02em' }}>Shop</h2>
+        <div style={{ background:C.surface, borderRadius:20, padding:'5px 12px', border:`1px solid ${C.border}`, display:'flex', gap:6, alignItems:'center' }}>
+          <span style={{ fontSize:14 }}>🪙</span>
+          <span style={{ color:C.text, fontWeight:700, fontSize:14 }}>20</span>
+        </div>
+      </div>
+      <div style={{ flex:1, overflow:'auto', padding:'0 16px' }}>
+        {items.map((item,i)=>(
+          <div key={item.name} style={{ background:C.surface, borderRadius:18, padding:16, marginBottom:10, border:`1px solid ${C.border}`, display:'flex', gap:14, alignItems:'center', animation:`fadeUp 0.3s ease ${i*0.07}s both` }}>
+            <div style={{ fontSize:32, flexShrink:0 }}>{item.emoji}</div>
+            <div style={{ flex:1 }}>
+              <p style={{ color:C.text, fontWeight:700, fontSize:15 }}>{item.name}</p>
+              <p style={{ color:C.muted, fontSize:12, marginTop:2, lineHeight:1.5 }}>{item.desc}</p>
+            </div>
+            <Btn small variant="subtle" full={false} style={{ flexShrink:0 }}>
+              🪙 {item.cost}
+            </Btn>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Wrap({ children }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'oklch(14% 0.02 265)' }}>
+      <div className="phone">{children}</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

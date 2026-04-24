@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>LinkUp — Phase 3</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%}
+  body{font-family:'Plus Jakarta Sans',sans-serif;background:oklch(14% 0.02 265);display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .phone{width:390px;height:844px;background:oklch(11% 0.015 265);border-radius:48px;overflow:hidden;position:relative;box-shadow:0 0 0 1px oklch(30% 0.02 265),0 40px 80px oklch(0% 0 0/0.6)}
+  @media(max-height:900px){.phone{transform:scale(0.88);transform-origin:center}}
+  @media(max-height:780px){.phone{transform:scale(0.76)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes ping{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.55);opacity:0}}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes pop{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+  @keyframes xpFloat{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-40px)}}
+  @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+  *{-webkit-tap-highlight-color:transparent}
+  input::placeholder,textarea::placeholder{color:oklch(38% 0.01 265)}
+  ::-webkit-scrollbar{width:0}
+  textarea{resize:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useReducer } = React;
+
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  bg:'oklch(11% 0.015 265)', surface:'oklch(16% 0.018 265)', raised:'oklch(20% 0.02 265)',
+  border:'oklch(25% 0.02 265)', accent:'oklch(62% 0.22 28)', accentL:'oklch(62% 0.22 28/0.15)',
+  accentG:'oklch(62% 0.22 28/0.08)', text:'oklch(95% 0.005 265)', muted:'oklch(52% 0.01 265)',
+  error:'oklch(62% 0.2 15)', success:'oklch(62% 0.18 145)', blue:'oklch(62% 0.18 240)',
+  purple:'oklch(62% 0.18 295)', gold:'oklch(75% 0.18 75)',
+};
+
+// ── XP level formula ──────────────────────────────────────────────────────────
+function xpForLevel(l) { return Math.floor(100 * Math.pow(l, 1.5)); }
+function levelFromXp(xp) { let l=1; while(xpForLevel(l+1)<=xp) l++; return l; }
+function levelProgress(xp) {
+  const l = levelFromXp(xp);
+  const cur = l === 1 ? 0 : xpForLevel(l), next = xpForLevel(l+1);
+  return { level:l, pct:Math.round((xp-cur)/(next-cur)*100), into:xp-cur, needed:next-cur };
+}
+
+// ── Mock data ─────────────────────────────────────────────────────────────────
+const MOCK_NEARBY = [
+  { id:1, username:'alex_m',   display_name:'Alex M.',   distance_m:180,  level:7,  xp:340,  bio:'Coffee addict. Always down for spontaneous meetups.',  color:'oklch(58% 0.16 190)' },
+  { id:2, username:'jordan_k', display_name:'Jordan K.', distance_m:450,  level:12, xp:890,  bio:'Skater & photographer.',                                color:'oklch(58% 0.16 270)' },
+  { id:3, username:'sam_r',    display_name:'Sam R.',    distance_m:820,  level:3,  xp:120,  bio:'New to the city, looking to explore!',                  color:'oklch(58% 0.16 140)' },
+  { id:4, username:'maya_v',   display_name:'Maya V.',   distance_m:1200, level:21, xp:2400, bio:'Top 100 explorer. Meetup streak: 14 days 🔥',           color:'oklch(58% 0.16 50)'  },
+  { id:5, username:'chris_b',  display_name:'Chris B.',  distance_m:950,  level:9,  xp:660,  bio:"Musician. Let's jam or just vibe.",                     color:'oklch(58% 0.16 330)' },
+];
+
+const MOCK_LEADERBOARD = [
+  { rank:1,  username:'maya_v',   display_name:'Maya V.',   xp:2400, level:21, total_meetups:47, current_streak:14, color:'oklch(58% 0.16 50)'  },
+  { rank:2,  username:'jordan_k', display_name:'Jordan K.', xp:890,  level:12, total_meetups:18, current_streak:6,  color:'oklch(58% 0.16 270)' },
+  { rank:3,  username:'chris_b',  display_name:'Chris B.',  xp:660,  level:9,  total_meetups:12, current_streak:3,  color:'oklch(58% 0.16 330)' },
+  { rank:4,  username:'alex_m',   display_name:'Alex M.',   xp:340,  level:7,  total_meetups:8,  current_streak:2,  color:'oklch(58% 0.16 190)' },
+  { rank:5,  username:'sam_r',    display_name:'Sam R.',    xp:120,  level:3,  total_meetups:2,  current_streak:1,  color:'oklch(58% 0.16 140)' },
+];
+
+const MOCK_QUESTS = [
+  { key:'first_linkup',   title:'First LinkUp',     desc:'Send your first meetup request',        xp:50,  coins:5,  target:1, progress:0, done:false, emoji:'👋', reset:'once'   },
+  { key:'daily_explore',  title:'Daily Explorer',   desc:'Open the map today',                    xp:10,  coins:0,  target:1, progress:1, done:true,  emoji:'🗺️', reset:'daily'  },
+  { key:'daily_request',  title:'Social Butterfly', desc:'Send 3 meetup requests today',          xp:30,  coins:3,  target:3, progress:1, done:false, emoji:'🦋', reset:'daily'  },
+  { key:'weekly_meetups', title:'Connector',        desc:'Complete 5 meetups this week',          xp:200, coins:20, target:5, progress:0, done:false, emoji:'🤝', reset:'weekly' },
+  { key:'streak_3',       title:'3-Day Streak',     desc:'Use LinkUp 3 days in a row',            xp:40,  coins:5,  target:3, progress:1, done:false, emoji:'🔥', reset:'once'   },
+  { key:'first_meetup',   title:'First Meetup',     desc:'Complete your first real-world meetup', xp:100, coins:10, target:1, progress:0, done:false, emoji:'🎯', reset:'once'   },
+];
+
+// ── Shared: Icons ─────────────────────────────────────────────────────────────
+const Icon = ({ name, size=20, color=C.muted }) => {
+  const p = { fill:'none', stroke:color, strokeWidth:'2', strokeLinecap:'round', strokeLinejoin:'round' };
+  const d = {
+    back:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polyline points="15 18 9 12 15 6"/></svg>,
+    eye:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+    eyeOff:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+    mail:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>,
+    user:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 10-16 0"/></svg>,
+    lock:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+    arrow:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+    check:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+    map:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>,
+    location: <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>,
+    bell:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>,
+    people:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+    quest:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+    shop:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>,
+    close:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    star:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+    zap:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+    trophy:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg>,
+    fire:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg>,
+    edit:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+    send:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+    x:        <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    shield:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+    camera:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>,
+  };
+  return d[name] || null;
+};
+
+// ── Shared UI atoms ───────────────────────────────────────────────────────────
+function Spinner({ color='#fff', size=20 }) {
+  return <div style={{ width:size, height:size, border:`2.5px solid ${color}44`, borderTopColor:color, borderRadius:'50%', animation:'spin 0.7s linear infinite' }}/>;
+}
+
+function StatusBar() {
+  const t = new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 28px 0', color:C.text, fontSize:13, fontWeight:600 }}>
+      <span>{t}</span>
+      <div style={{ display:'flex', gap:5, alignItems:'center' }}>
+        <svg width="16" height="11" viewBox="0 0 16 11" fill={C.text}><rect x="0" y="3" width="3" height="8" rx="1"/><rect x="4.5" y="2" width="3" height="9" rx="1"/><rect x="9" y=".5" width="3" height="10.5" rx="1"/><rect x="13.5" y="0" width="2.5" height="11" rx="1"/></svg>
+        <svg width="17" height="11" viewBox="0 0 24 11" fill={C.text}><rect x="0" y="1.5" width="21" height="8" rx="2" stroke={C.text} strokeWidth="1.5" fill="none"/><rect x="21.5" y="3.5" width="2" height="4" rx="1" fill={C.text}/><rect x="1.5" y="3" width="13" height="5" rx="1"/></svg>
+      </div>
+    </div>
+  );
+}
+
+function Wordmark({ size='sm' }) {
+  const s = size==='lg'?36:26;
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+      <div style={{ width:s, height:s, borderRadius:s*0.35, background:C.accent, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:`0 3px 12px ${C.accent}55` }}>
+        <Icon name="map" size={s*0.55} color="#fff"/>
+      </div>
+      <span style={{ fontSize:size==='lg'?26:20, fontWeight:800, color:C.text, letterSpacing:'-0.03em' }}>Link<span style={{color:C.accent}}>Up</span></span>
+    </div>
+  );
+}
+
+function Btn({ children, onClick, variant='primary', loading, disabled, full=true, small, style:sx={} }) {
+  const [pr, setPr] = useState(false);
+  const h = small ? 40 : 54;
+  const vs = {
+    primary: { background:C.accent, color:'#fff', boxShadow:`0 4px 18px ${C.accent}44` },
+    ghost:   { background:C.surface, color:C.text, border:`1.5px solid ${C.border}` },
+    subtle:  { background:C.accentG, color:C.accent, border:`1px solid ${C.accentL}` },
+    success: { background:`oklch(62% 0.18 145)`, color:'#fff' },
+    danger:  { background:`oklch(62% 0.2 15/0.15)`, color:C.error, border:`1px solid oklch(62% 0.2 15/0.3)` },
+  };
+  return (
+    <button onClick={disabled||loading?undefined:onClick}
+      onMouseDown={()=>setPr(true)} onMouseUp={()=>setPr(false)} onMouseLeave={()=>setPr(false)}
+      style={{ width:full?'100%':undefined, height:h, borderRadius:small?12:16, border:'none', cursor:disabled||loading?'not-allowed':'pointer', fontSize:small?13:16, fontWeight:700, fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:7, transition:'all 0.15s', transform:pr?'scale(0.97)':'scale(1)', opacity:disabled||loading?0.55:1, paddingLeft:small?14:undefined, paddingRight:small?14:undefined, flexShrink:0, ...vs[variant], ...sx }}>
+      {loading ? <Spinner color={variant==='ghost'?C.muted:'#fff'}/> : children}
+    </button>
+  );
+}
+
+function Avatar({ name, color, size=44 }) {
+  const initials = name?.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?';
+  return (
+    <div style={{ width:size, height:size, borderRadius:'50%', background:color||C.raised, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.36, fontWeight:700, color:'#fff', border:`2px solid ${C.border}` }}>
+      {initials}
+    </div>
+  );
+}
+
+function Field({ label, type='text', value, onChange, icon, error, placeholder, suffix }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ marginBottom:15 }}>
+      {label && <label style={{ display:'block', fontSize:11, fontWeight:700, color:C.muted, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:7 }}>{label}</label>}
+      <div style={{ display:'flex', alignItems:'center', gap:10, background:focused?C.surface:'oklch(13% 0.015 265)', border:`1.5px solid ${error?C.error:focused?C.accent:C.border}`, borderRadius:14, padding:'0 14px', height:52, transition:'all 0.2s', boxShadow:focused?`0 0 0 3px ${C.accentL}`:'none' }}>
+        {icon && <span style={{ flexShrink:0 }}><Icon name={icon} size={18} color={focused?C.accent:C.muted}/></span>}
+        <input type={type} value={value} onChange={onChange} placeholder={placeholder} onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
+          style={{ flex:1, background:'none', border:'none', outline:'none', color:C.text, fontSize:15, fontFamily:'inherit', fontWeight:500 }}/>
+        {suffix}
+      </div>
+      {error && <p style={{ color:C.error, fontSize:12, marginTop:5, fontWeight:500 }}>{error}</p>}
+    </div>
+  );
+}
+
+function BottomNav({ active, onTab, inboxCount=0 }) {
+  const tabs = [
+    { id:'map',     icon:'map',    label:'Explore' },
+    { id:'people',  icon:'people', label:'People'  },
+    { id:'quests',  icon:'quest',  label:'Quests'  },
+    { id:'rank',    icon:'trophy', label:'Ranks'   },
+    { id:'profile', icon:'user',   label:'Profile' },
+  ];
+  return (
+    <div style={{ display:'flex', borderTop:`1px solid ${C.border}`, background:C.bg, flexShrink:0 }}>
+      {tabs.map(tab => {
+        const on = active===tab.id;
+        return (
+          <button key={tab.id} onClick={()=>onTab(tab.id)} style={{ flex:1, padding:'10px 0 18px', background:'none', border:'none', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:4, position:'relative' }}>
+            <Icon name={tab.icon} size={21} color={on?C.accent:C.muted}/>
+            <span style={{ fontSize:10, color:on?C.accent:C.muted, fontWeight:on?700:500 }}>{tab.label}</span>
+            {tab.id==='people' && inboxCount>0 && (
+              <div style={{ position:'absolute', top:8, right:'50%', transform:'translateX(8px)', width:16, height:16, borderRadius:'50%', background:C.error, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <span style={{ color:'#fff', fontSize:9, fontWeight:800 }}>{inboxCount}</span>
+              </div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── XP Toast ──────────────────────────────────────────────────────────────────
+function XPToast({ events }) {
+  return (
+    <div style={{ position:'absolute', top:80, right:16, zIndex:200, display:'flex', flexDirection:'column', gap:6, pointerEvents:'none' }}>
+      {events.map(ev => (
+        <div key={ev.id} style={{ background:C.accent, color:'#fff', fontWeight:800, fontSize:13, borderRadius:20, padding:'6px 14px', display:'flex', alignItems:'center', gap:6, animation:'xpFloat 2s ease forwards', boxShadow:`0 4px 14px ${C.accent}66` }}>
+          <Icon name="zap" size={13} color="#fff"/> +{ev.xp} XP {ev.coins?<>· 🪙 +{ev.coins}</>:null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Level-Up Modal ────────────────────────────────────────────────────────────
+function LevelUpModal({ level, onDismiss }) {
+  return (
+    <div style={{ position:'absolute', inset:0, zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.7)', animation:'fadeIn 0.2s ease' }}>
+      <div style={{ background:C.surface, borderRadius:28, padding:'36px 32px', textAlign:'center', width:320, border:`1px solid ${C.border}`, animation:'pop 0.4s ease' }}>
+        <div style={{ fontSize:56, marginBottom:12, animation:'pop 0.5s ease 0.1s both' }}>🎉</div>
+        <div style={{ background:`linear-gradient(135deg, ${C.accent}, ${C.gold})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:32, fontWeight:800, letterSpacing:'-0.02em', marginBottom:6 }}>
+          Level {level}!
+        </div>
+        <p style={{ color:C.muted, fontSize:14, lineHeight:1.6, marginBottom:24 }}>You've leveled up! Keep meeting people to unlock more perks.</p>
+        <div style={{ display:'flex', gap:12, justifyContent:'center', marginBottom:24 }}>
+          {[['🗺️','Map Boost'],['👻','Stealth']].map(([e,l])=>(
+            <div key={l} style={{ background:C.raised, borderRadius:14, padding:'10px 14px', textAlign:'center' }}>
+              <div style={{ fontSize:22, marginBottom:4 }}>{e}</div>
+              <p style={{ color:C.muted, fontSize:11 }}>{l} unlocked</p>
+            </div>
+          ))}
+        </div>
+        <Btn onClick={onDismiss}>Awesome!</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── Request Modal ─────────────────────────────────────────────────────────────
+function RequestModal({ target, onSend, onClose }) {
+  const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function handleSend() {
+    setLoading(true);
+    await new Promise(r=>setTimeout(r,900));
+    setLoading(false);
+    setSent(true);
+    setTimeout(()=>onSend({ xp:5, coins:0, msg }), 600);
+  }
+
+  return (
+    <div style={{ position:'absolute', inset:0, zIndex:100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.55)', animation:'fadeIn 0.2s' }}/>
+      <div style={{ position:'relative', background:C.surface, borderRadius:'24px 24px 0 0', padding:'0 24px 40px', animation:'slideUp 0.3s ease', border:`1px solid ${C.border}` }}>
+        <div style={{ width:36, height:4, borderRadius:99, background:C.border, margin:'12px auto 20px' }}/>
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+          <Avatar name={target.display_name} color={target.color} size={52}/>
+          <div>
+            <h3 style={{ color:C.text, fontWeight:800, fontSize:17 }}>{target.display_name}</h3>
+            <p style={{ color:C.muted, fontSize:13 }}>@{target.username} · {target.distance_m < 1000 ? `${target.distance_m}m` : `${(target.distance_m/1000).toFixed(1)}km`} away</p>
+          </div>
+        </div>
+
+        {!sent ? (
+          <>
+            <div style={{ marginBottom:16 }}>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:C.muted, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:8 }}>Add a note (optional)</label>
+              <div style={{ background:C.raised, border:`1.5px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                <textarea value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Hey! Want to grab coffee?" maxLength={200}
+                  style={{ width:'100%', background:'none', border:'none', outline:'none', color:C.text, fontSize:14, fontFamily:'inherit', lineHeight:1.6, height:72 }}/>
+                <p style={{ color:C.muted, fontSize:11, textAlign:'right' }}>{msg.length}/200</p>
+              </div>
+            </div>
+            <div style={{ background:C.accentG, borderRadius:12, padding:'10px 14px', marginBottom:16, display:'flex', gap:8, alignItems:'center' }}>
+              <Icon name="zap" size={14} color={C.accent}/>
+              <p style={{ color:C.muted, fontSize:12 }}>You'll earn <span style={{ color:C.accent, fontWeight:700 }}>+5 XP</span> for sending this request</p>
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <Btn variant="ghost" full={false} style={{ flex:1 }} onClick={onClose}>Cancel</Btn>
+              <Btn full={false} style={{ flex:2 }} onClick={handleSend} loading={loading}>
+                <Icon name="send" size={15} color="#fff"/> Send LinkUp
+              </Btn>
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign:'center', padding:'12px 0 8px' }}>
+            <div style={{ width:56, height:56, borderRadius:'50%', background:`${C.success}20`, border:`2px solid ${C.success}`, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
+              <Icon name="check" size={28} color={C.success}/>
+            </div>
+            <p style={{ color:C.text, fontWeight:700, fontSize:16 }}>Request sent!</p>
+            <p style={{ color:C.muted, fontSize:13, marginTop:4 }}>Expires in 10 minutes if unanswered</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Incoming Request Notification ─────────────────────────────────────────────
+function InboxNotif({ requests, onAccept, onDecline }) {
+  if (!requests.length) return null;
+  const req = requests[0];
+  const [timer, setTimer] = useState(600); // 10 min
+
+  useEffect(() => {
+    const t = setInterval(() => setTimer(v => v > 0 ? v-1 : 0), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const mm = String(Math.floor(timer/60)).padStart(2,'0');
+  const ss = String(timer%60).padStart(2,'0');
+  const pct = (timer/600)*100;
+
+  return (
+    <div style={{ position:'absolute', top:16, left:16, right:16, zIndex:150, animation:'fadeUp 0.3s ease' }}>
+      <div style={{ background:C.surface, borderRadius:20, padding:'16px', border:`1.5px solid ${C.accent}55`, boxShadow:`0 8px 28px rgba(0,0,0,0.5)` }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
+          <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+            <div style={{ position:'relative' }}>
+              <Avatar name={req.sender_name} color={req.color} size={44}/>
+              <div style={{ position:'absolute', bottom:0, right:0, width:14, height:14, borderRadius:'50%', background:C.accent, border:`2px solid ${C.surface}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <Icon name="send" size={8} color="#fff"/>
+              </div>
+            </div>
+            <div>
+              <p style={{ color:C.text, fontWeight:700, fontSize:14 }}>{req.sender_name}</p>
+              <p style={{ color:C.muted, fontSize:12 }}>wants to LinkUp · {req.distance_m}m away</p>
+            </div>
+          </div>
+          <span style={{ color: timer<60?C.error:C.muted, fontSize:12, fontWeight:700, fontVariantNumeric:'tabular-nums' }}>{mm}:{ss}</span>
+        </div>
+
+        {/* Timer bar */}
+        <div style={{ height:3, background:C.border, borderRadius:99, marginBottom:12 }}>
+          <div style={{ height:'100%', width:`${pct}%`, background: timer<60?C.error:C.accent, borderRadius:99, transition:'width 1s linear' }}/>
+        </div>
+
+        {req.message && (
+          <p style={{ color:C.muted, fontSize:13, fontStyle:'italic', marginBottom:12, lineHeight:1.5 }}>"{req.message}"</p>
+        )}
+
+        <div style={{ display:'flex', gap:8 }}>
+          <Btn variant="danger" full={false} style={{ flex:1 }} small onClick={()=>onDecline(req.id)}>
+            <Icon name="x" size={14} color={C.error}/> Decline
+          </Btn>
+          <Btn full={false} style={{ flex:2 }} small onClick={()=>onAccept(req.id)}>
+            <Icon name="check" size={14} color="#fff"/> Accept +15 XP
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Map Screen ────────────────────────────────────────────────────────────────
+function MapScreen({ user, xp, onRequestUser, incomingRequests, onAccept, onDecline }) {
+  const [radius, setRadius] = useState(1000);
+  const [selectedPin, setSelectedPin] = useState(null);
+  const prog = levelProgress(xp);
+  const filtered = MOCK_NEARBY.filter(u=>u.distance_m<=radius);
+
+  const pins = [
+    { ...MOCK_NEARBY[0], x:50,  y:51 },
+    { ...MOCK_NEARBY[1], x:68,  y:37 },
+    { ...MOCK_NEARBY[2], x:30,  y:65 },
+    { ...MOCK_NEARBY[3], x:76,  y:62 },
+    { ...MOCK_NEARBY[4], x:44,  y:31 },
+  ];
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', position:'relative' }}>
+      <StatusBar/>
+      <div style={{ padding:'10px 20px 8px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <Wordmark/>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <div style={{ background:C.accentL, border:`1px solid ${C.accent}44`, borderRadius:20, padding:'4px 10px', display:'flex', alignItems:'center', gap:5 }}>
+            <Icon name="zap" size={12} color={C.accent}/>
+            <span style={{ fontSize:13, color:C.accent, fontWeight:700 }}>{xp} XP</span>
+          </div>
+          <Avatar name={user?.displayName||'You'} color={C.accent} size={33}/>
+        </div>
+      </div>
+
+      {/* XP progress bar */}
+      <div style={{ padding:'0 20px 8px' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+          <span style={{ color:C.muted, fontSize:11, fontWeight:600 }}>Lv {prog.level}</span>
+          <span style={{ color:C.muted, fontSize:11 }}>{prog.into}/{prog.needed} XP</span>
+        </div>
+        <div style={{ height:4, background:C.border, borderRadius:99 }}>
+          <div style={{ height:'100%', width:`${prog.pct}%`, background:`linear-gradient(90deg, ${C.accent}, oklch(62% 0.22 55))`, borderRadius:99, transition:'width 0.6s' }}/>
+        </div>
+      </div>
+
+      {/* Map */}
+      <div style={{ flex:1, position:'relative', overflow:'hidden', margin:'0 14px', borderRadius:22, border:`1px solid ${C.border}` }}>
+        <div style={{ position:'absolute', inset:0, background:C.surface }}>
+          {[...Array(12)].map((_,i)=><div key={i} style={{ position:'absolute', left:0, right:0, height:1, background:C.border, top:`${(i+1)*8.33}%` }}/>)}
+          {[...Array(10)].map((_,i)=><div key={i} style={{ position:'absolute', top:0, bottom:0, width:1, background:C.border, left:`${(i+1)*9.09}%` }}/>)}
+        </div>
+        <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} viewBox="0 0 390 340" preserveAspectRatio="none">
+          <path d="M0 170 Q100 162 195 170 Q290 178 390 170" stroke="oklch(22% 0.02 265)" strokeWidth="12" fill="none"/>
+          <path d="M195 0 Q200 82 195 170 Q190 252 195 340" stroke="oklch(22% 0.02 265)" strokeWidth="12" fill="none"/>
+          <path d="M0 260 Q130 254 195 250 Q270 246 390 260" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M0 80 Q160 75 195 80 Q240 85 390 75" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M80 0 Q85 108 80 170 Q75 242 80 340" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M310 0 Q305 108 310 170 Q315 242 310 340" stroke="oklch(20% 0.018 265)" strokeWidth="7" fill="none"/>
+          <path d="M0 170 Q100 162 195 170 Q290 178 390 170" stroke={C.border} strokeWidth="1" strokeDasharray="16 10" fill="none"/>
+          {[[20,110,40,30],[100,40,55,38],[240,110,45,26],[320,196,40,42],[30,230,50,32],[120,270,35,26],[250,276,55,28],[330,40,45,34]].map(([x,y,w,h],i)=>(
+            <rect key={i} x={x} y={y} width={w} height={h} rx="3" fill="oklch(18% 0.015 265)" stroke={C.border} strokeWidth="0.5"/>
+          ))}
+        </svg>
+
+        {/* Radius ring */}
+        <div style={{ position:'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)', width:`${radius/4.2}px`, height:`${radius/4.2}px`, borderRadius:'50%', border:`1.5px dashed ${C.accent}44`, background:`${C.accent}06`, pointerEvents:'none', transition:'all 0.4s' }}/>
+
+        {/* My pin */}
+        <div style={{ position:'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)', zIndex:10 }}>
+          <div style={{ position:'absolute', inset:-10, borderRadius:'50%', background:`${C.accent}18`, animation:'ping 2s ease infinite' }}/>
+          <div style={{ width:18, height:18, borderRadius:'50%', background:C.accent, border:`3px solid ${C.bg}`, boxShadow:`0 0 0 2px ${C.accent}55` }}/>
+        </div>
+
+        {/* User pins */}
+        {pins.filter(p=>p.distance_m<=radius).map(pin=>(
+          <div key={pin.id} onClick={()=>setSelectedPin(selectedPin?.id===pin.id?null:pin)}
+            style={{ position:'absolute', left:`${pin.x}%`, top:`${pin.y}%`, transform:'translate(-50%,-100%)', cursor:'pointer', zIndex:5 }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+              <div style={{ width:38, height:38, borderRadius:'50%', background:pin.color, border:`2.5px solid ${C.bg}`, boxShadow:`0 2px 10px rgba(0,0,0,0.45)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#fff', transform:selectedPin?.id===pin.id?'scale(1.25)':'scale(1)', transition:'transform 0.15s', outline: selectedPin?.id===pin.id?`3px solid ${C.accent}`:'none', outlineOffset:2 }}>
+                {pin.display_name[0]}
+              </div>
+              <div style={{ width:2, height:5, background:pin.color }}/>
+            </div>
+          </div>
+        ))}
+
+        {/* Radius toggle */}
+        <div style={{ position:'absolute', top:10, right:10, background:`${C.bg}e0`, backdropFilter:'blur(8px)', borderRadius:12, padding:'7px 10px', border:`1px solid ${C.border}` }}>
+          <div style={{ display:'flex', gap:4 }}>
+            {[500,1000,2000].map(r=>(
+              <button key={r} onClick={()=>setRadius(r)} style={{ padding:'3px 8px', borderRadius:6, border:`1px solid ${radius===r?C.accent:C.border}`, background:radius===r?C.accentL:'none', color:radius===r?C.accent:C.muted, fontSize:10, fontWeight:700, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}>
+                {r<1000?`${r}m`:`${r/1000}km`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Count */}
+        <div style={{ position:'absolute', top:10, left:10, background:`${C.bg}e0`, backdropFilter:'blur(8px)', borderRadius:10, padding:'5px 10px', border:`1px solid ${C.border}` }}>
+          <p style={{ color:C.accent, fontSize:12, fontWeight:700 }}>{filtered.length} nearby</p>
+        </div>
+
+        {/* Mini profile popup */}
+        {selectedPin && (
+          <div style={{ position:'absolute', bottom:12, left:12, right:12, background:`${C.bg}f0`, backdropFilter:'blur(12px)', borderRadius:16, padding:'12px', border:`1px solid ${C.border}`, animation:'fadeUp 0.2s ease' }}>
+            <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+              <Avatar name={selectedPin.display_name} color={selectedPin.color} size={40}/>
+              <div style={{ flex:1 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <p style={{ color:C.text, fontWeight:700, fontSize:14 }}>{selectedPin.display_name}</p>
+                  <span style={{ background:C.accentG, color:C.accent, fontSize:10, fontWeight:700, borderRadius:5, padding:'1px 6px' }}>Lv {selectedPin.level}</span>
+                </div>
+                <p style={{ color:C.muted, fontSize:11, marginTop:1 }}>{selectedPin.distance_m}m · {selectedPin.xp} XP</p>
+              </div>
+              <Btn small full={false} onClick={()=>onRequestUser(selectedPin)} style={{ paddingLeft:12, paddingRight:12 }}>
+                👋 LinkUp
+              </Btn>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Peek strip */}
+      <div style={{ padding:'8px 14px 0', flexShrink:0 }}>
+        <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:8 }}>
+          {filtered.map(u=>(
+            <div key={u.id} onClick={()=>setSelectedPin(selectedPin?.id===u.id?null:u)}
+              style={{ flexShrink:0, width:110, background: selectedPin?.id===u.id?C.accentL:C.surface, borderRadius:14, padding:10, border:`1.5px solid ${selectedPin?.id===u.id?C.accent:C.border}`, cursor:'pointer', transition:'all 0.15s' }}>
+              <Avatar name={u.display_name} color={u.color} size={32}/>
+              <p style={{ color:C.text, fontWeight:700, fontSize:12, marginTop:6, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.display_name}</p>
+              <p style={{ color:C.muted, fontSize:11, marginTop:2 }}>{u.distance_m<1000?`${u.distance_m}m`:`${(u.distance_m/1000).toFixed(1)}km`}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Incoming notification */}
+      <InboxNotif requests={incomingRequests} onAccept={onAccept} onDecline={onDecline}/>
+    </div>
+  );
+}
+
+// ── People Screen ─────────────────────────────────────────────────────────────
+function PeopleScreen({ onRequestUser, incomingRequests, onAccept, onDecline }) {
+  const [tab, setTab] = useState('nearby');
+  function fmtDist(m){ return m<1000?`${m}m`:`${(m/1000).toFixed(1)}km`; }
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', position:'relative' }}>
+      <StatusBar/>
+      <div style={{ padding:'12px 20px 0' }}>
+        <h2 style={{ color:C.text, fontWeight:800, fontSize:20, letterSpacing:'-0.02em' }}>People</h2>
+      </div>
+
+      {/* Tab switcher */}
+      <div style={{ display:'flex', gap:0, margin:'12px 20px', background:C.surface, borderRadius:14, padding:4 }}>
+        {[{id:'nearby',label:'Nearby'},{id:'inbox',label:`Inbox${incomingRequests.length?` (${incomingRequests.length})`:''}`,}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{ flex:1, padding:'8px', borderRadius:10, border:'none', background:tab===t.id?C.accent:'none', color:tab===t.id?'#fff':C.muted, fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit', transition:'all 0.2s' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex:1, overflow:'auto', padding:'0 16px' }}>
+        {tab==='nearby' && MOCK_NEARBY.map((u,i)=>(
+          <div key={u.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:C.surface, borderRadius:16, marginBottom:9, border:`1px solid ${C.border}`, animation:`fadeUp 0.3s ease ${i*0.06}s both` }}>
+            <div style={{ position:'relative' }}>
+              <Avatar name={u.display_name} color={u.color} size={48}/>
+              <div style={{ position:'absolute', bottom:1, right:1, width:10, height:10, borderRadius:'50%', background:C.success, border:`2px solid ${C.surface}` }}/>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                <p style={{ color:C.text, fontWeight:700, fontSize:14 }}>{u.display_name}</p>
+                <span style={{ background:C.accentG, color:C.accent, fontSize:10, fontWeight:700, borderRadius:5, padding:'1px 6px', flexShrink:0 }}>Lv {u.level}</span>
+              </div>
+              <p style={{ color:C.muted, fontSize:12, marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{u.bio}</p>
+              <div style={{ display:'flex', gap:3, marginTop:3, alignItems:'center' }}>
+                <Icon name="location" size={10} color={C.muted}/>
+                <span style={{ color:C.muted, fontSize:11 }}>{fmtDist(u.distance_m)}</span>
+              </div>
+            </div>
+            <Btn small full={false} variant="subtle" onClick={()=>onRequestUser(u)} style={{ flexShrink:0 }}>👋</Btn>
+          </div>
+        ))}
+
+        {tab==='inbox' && (
+          incomingRequests.length===0
+            ? <div style={{ textAlign:'center', paddingTop:60 }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
+                <p style={{ color:C.muted, fontSize:14 }}>No pending requests</p>
+              </div>
+            : incomingRequests.map((req,i)=>(
+                <div key={req.id} style={{ background:C.surface, borderRadius:18, padding:16, marginBottom:10, border:`1.5px solid ${C.accent}44`, animation:`fadeUp 0.3s ease ${i*0.07}s both` }}>
+                  <div style={{ display:'flex', gap:12, alignItems:'center', marginBottom:12 }}>
+                    <Avatar name={req.sender_name} color={req.color} size={48}/>
+                    <div style={{ flex:1 }}>
+                      <p style={{ color:C.text, fontWeight:700, fontSize:15 }}>{req.sender_name}</p>
+                      <p style={{ color:C.muted, fontSize:12 }}>@{req.username} · {req.distance_m}m away</p>
+                    </div>
+                    <span style={{ color:C.muted, fontSize:11, fontWeight:600 }}>9:58</span>
+                  </div>
+                  {req.message && <p style={{ color:C.muted, fontSize:13, fontStyle:'italic', marginBottom:12 }}>"{req.message}"</p>}
+                  <div style={{ display:'flex', gap:8 }}>
+                    <Btn variant="danger" full={false} style={{ flex:1 }} small onClick={()=>onDecline(req.id)}>
+                      <Icon name="x" size={13} color={C.error}/> Decline
+                    </Btn>
+                    <Btn full={false} style={{ flex:2 }} small onClick={()=>onAccept(req.id)}>
+                      <Icon name="check" size={13} color="#fff"/> Accept +15 XP
+                    </Btn>
+                  </div>
+                </div>
+              ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Quests Screen ─────────────────────────────────────────────────────────────
+function QuestsScreen({ quests, onClaim }) {
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'12px 20px 8px', display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
+        <div>
+          <h2 style={{ color:C.text, fontWeight:800, fontSize:20, letterSpacing:'-0.02em' }}>Quests</h2>
+          <p style={{ color:C.muted, fontSize:12, marginTop:2 }}>Daily resets in 14h 32m</p>
+        </div>
+        <div style={{ background:C.accentG, border:`1px solid ${C.accentL}`, borderRadius:10, padding:'5px 10px' }}>
+          <span style={{ color:C.accent, fontSize:12, fontWeight:700 }}>{quests.filter(q=>q.done).length}/{quests.length} done</span>
+        </div>
+      </div>
+      <div style={{ flex:1, overflow:'auto', padding:'0 16px' }}>
+        {quests.map((q,i)=>(
+          <div key={q.key} style={{ background:q.done?`oklch(62% 0.18 145/0.07)`:C.surface, borderRadius:18, padding:'14px 16px', marginBottom:9, border:`1.5px solid ${q.done?'oklch(62% 0.18 145/0.25)':C.border}`, animation:`fadeUp 0.3s ease ${i*0.06}s both` }}>
+            <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+              <div style={{ fontSize:24, flexShrink:0, paddingTop:2 }}>{q.emoji}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                  <p style={{ color:q.done?C.success:C.text, fontWeight:700, fontSize:14 }}>{q.title}</p>
+                  <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                    {q.xp>0 && <span style={{ background:q.done?`oklch(62% 0.18 145/0.15)`:C.accentG, color:q.done?C.success:C.accent, fontSize:10, fontWeight:700, borderRadius:6, padding:'2px 7px' }}>+{q.xp} XP</span>}
+                    {q.coins>0 && <span style={{ background:C.raised, color:C.muted, fontSize:10, fontWeight:700, borderRadius:6, padding:'2px 7px' }}>🪙{q.coins}</span>}
+                  </div>
+                </div>
+                <p style={{ color:C.muted, fontSize:12, marginTop:2, lineHeight:1.5 }}>{q.desc}</p>
+                <div style={{ marginTop:9 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                    <span style={{ color:C.muted, fontSize:11 }}>{Math.min(q.progress,q.target)}/{q.target}</span>
+                    {q.done && <span style={{ color:C.success, fontSize:11, fontWeight:700 }}>✓ Complete</span>}
+                    {!q.done && <span style={{ color:C.muted, fontSize:10, textTransform:'uppercase', letterSpacing:'0.04em' }}>{q.reset}</span>}
+                  </div>
+                  <div style={{ height:4, background:C.border, borderRadius:99 }}>
+                    <div style={{ height:'100%', width:`${Math.min((q.progress/q.target)*100,100)}%`, background:q.done?C.success:C.accent, borderRadius:99, transition:'width 0.5s' }}/>
+                  </div>
+                </div>
+                {q.done && q.claimable && (
+                  <div style={{ marginTop:10 }}>
+                    <Btn small onClick={()=>onClaim(q.key)} style={{ background:C.success }}>
+                      <Icon name="zap" size={13} color="#fff"/> Claim Reward
+                    </Btn>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Leaderboard Screen ────────────────────────────────────────────────────────
+function RankScreen({ myXp, myUsername }) {
+  const [scope, setScope] = useState('global');
+  const myRank = MOCK_LEADERBOARD.findIndex(u=>u.username===myUsername)+1 || 6;
+  const myEntry = { rank:myRank, username:myUsername, display_name:'You', xp:myXp, level:levelFromXp(myXp), total_meetups:0, current_streak:1, color:C.accent };
+  const list = scope==='global' ? MOCK_LEADERBOARD : [...MOCK_LEADERBOARD].sort(()=>Math.random()-0.3).slice(0,4);
+
+  const medals = ['🥇','🥈','🥉'];
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ padding:'12px 20px 0' }}>
+        <h2 style={{ color:C.text, fontWeight:800, fontSize:20, letterSpacing:'-0.02em' }}>Leaderboard</h2>
+      </div>
+
+      {/* Scope toggle */}
+      <div style={{ display:'flex', gap:0, margin:'12px 20px', background:C.surface, borderRadius:14, padding:4 }}>
+        {[{id:'global',label:'Global'},{id:'nearby',label:'Nearby (2km)'}].map(t=>(
+          <button key={t.id} onClick={()=>setScope(t.id)} style={{ flex:1, padding:'8px', borderRadius:10, border:'none', background:scope===t.id?C.accent:'none', color:scope===t.id?'#fff':C.muted, fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit', transition:'all 0.2s' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Top 3 podium */}
+      <div style={{ display:'flex', justifyContent:'center', alignItems:'flex-end', gap:10, padding:'0 20px 16px' }}>
+        {[1,0,2].map(idx => {
+          const u = list[idx];
+          if (!u) return <div key={idx} style={{ width:90 }}/>;
+          const heights = [80,100,70];
+          const hi = [1,0,2].indexOf(idx);
+          return (
+            <div key={u.username} style={{ width:90, display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+              <Avatar name={u.display_name} color={u.color} size={idx===0?48:38}/>
+              <p style={{ color:C.text, fontWeight:700, fontSize:12, textAlign:'center' }}>{u.display_name.split(' ')[0]}</p>
+              <div style={{ width:'100%', height:heights[hi], background:idx===0?C.accent:C.surface, border:`1px solid ${idx===0?'transparent':C.border}`, borderRadius:'8px 8px 0 0', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', paddingTop:8 }}>
+                <span style={{ fontSize:18 }}>{medals[idx]}</span>
+                <p style={{ color:idx===0?'#fff':C.muted, fontSize:11, fontWeight:700, marginTop:4 }}>{u.xp} XP</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Full list */}
+      <div style={{ flex:1, overflow:'auto', padding:'0 16px' }}>
+        {list.map((u,i)=>(
+          <div key={u.username} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', background:u.username===myUsername?C.accentL:C.surface, borderRadius:14, marginBottom:7, border:`1.5px solid ${u.username===myUsername?C.accent:C.border}`, animation:`fadeUp 0.25s ease ${i*0.05}s both` }}>
+            <span style={{ color: i<3?[C.gold,'oklch(70% 0.01 265)','oklch(65% 0.12 35)'][i]:C.muted, fontWeight:800, fontSize:14, width:28, textAlign:'center', flexShrink:0 }}>
+              {i<3 ? medals[i] : `#${u.rank}`}
+            </span>
+            <Avatar name={u.display_name} color={u.color} size={38}/>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ color:C.text, fontWeight:700, fontSize:13 }}>{u.display_name}</p>
+              <div style={{ display:'flex', gap:8, marginTop:2 }}>
+                <span style={{ color:C.muted, fontSize:11 }}>Lv {u.level}</span>
+                <span style={{ color:C.muted, fontSize:11 }}>·</span>
+                <span style={{ color:C.muted, fontSize:11 }}>🤝 {u.total_meetups}</span>
+                <span style={{ color:C.muted, fontSize:11 }}>·</span>
+                <span style={{ color:C.muted, fontSize:11 }}>🔥 {u.current_streak}d</span>
+              </div>
+            </div>
+            <span style={{ color: u.username===myUsername?C.accent:C.muted, fontWeight:800, fontSize:14, flexShrink:0 }}>{u.xp}</span>
+          </div>
+        ))}
+
+        {/* My entry at bottom if not in top list */}
+        {!list.find(u=>u.username===myUsername) && (
+          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', background:C.accentL, borderRadius:14, marginBottom:7, border:`1.5px solid ${C.accent}` }}>
+            <span style={{ color:C.muted, fontWeight:800, fontSize:14, width:28, textAlign:'center', flexShrink:0 }}>#{myEntry.rank}</span>
+            <Avatar name={myEntry.display_name} color={myEntry.color} size={38}/>
+            <div style={{ flex:1 }}>
+              <p style={{ color:C.text, fontWeight:700, fontSize:13 }}>You</p>
+              <p style={{ color:C.muted, fontSize:11 }}>Lv {myEntry.level} · 🤝 0 · 🔥 1d</p>
+            </div>
+            <span style={{ color:C.accent, fontWeight:800, fontSize:14 }}>{myXp}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Profile Screen ────────────────────────────────────────────────────────────
+function ProfileScreen({ user, xp, quests }) {
+  const prog = levelProgress(xp);
+  const doneQuests = quests.filter(q=>q.done).length;
+
+  return (
+    <div style={{ height:'100%', display:'flex', flexDirection:'column' }}>
+      <StatusBar/>
+      <div style={{ flex:1, overflow:'auto' }}>
+        {/* Cover */}
+        <div style={{ height:110, background:`linear-gradient(135deg, ${C.accent}99, oklch(62% 0.22 55) 60%, oklch(62% 0.18 295))`, position:'relative' }}>
+          <div style={{ position:'absolute', inset:0, background:`repeating-linear-gradient(45deg, transparent, transparent 20px, oklch(100% 0 0/0.04) 20px, oklch(100% 0 0/0.04) 40px)` }}/>
+          <div style={{ position:'absolute', top:12, right:16 }}>
+            <button style={{ width:32, height:32, borderRadius:'50%', background:'rgba(0,0,0,0.3)', border:`1px solid rgba(255,255,255,0.2)`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+              <Icon name="edit" size={14} color="#fff"/>
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding:'0 20px' }}>
+          <div style={{ marginTop:-32, marginBottom:14 }}>
+            <div style={{ width:66, height:66, borderRadius:'50%', background:`linear-gradient(135deg, ${C.accent}, oklch(62% 0.22 55))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, fontWeight:800, color:'#fff', border:`3px solid ${C.bg}`, boxShadow:`0 4px 14px rgba(0,0,0,0.4)`, marginBottom:10 }}>
+              {user?.displayName?.[0]?.toUpperCase()||'Y'}
+            </div>
+            <h2 style={{ color:C.text, fontWeight:800, fontSize:19 }}>{user?.displayName||'You'}</h2>
+            <p style={{ color:C.muted, fontSize:13 }}>@{user?.username||'yourhandle'}</p>
+            {user?.bio && <p style={{ color:C.muted, fontSize:13, marginTop:6, lineHeight:1.6 }}>{user.bio}</p>}
+          </div>
+
+          {/* Level progress */}
+          <div style={{ background:C.surface, borderRadius:16, padding:'14px 16px', marginBottom:14, border:`1px solid ${C.border}` }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <div style={{ background:C.accentL, borderRadius:8, padding:'3px 8px' }}>
+                  <span style={{ color:C.accent, fontWeight:800, fontSize:13 }}>Level {prog.level}</span>
+                </div>
+                <span style={{ color:C.muted, fontSize:12 }}>{prog.into}/{prog.needed} XP</span>
+              </div>
+              <span style={{ color:C.muted, fontSize:12 }}>{prog.pct}%</span>
+            </div>
+            <div style={{ height:6, background:C.border, borderRadius:99 }}>
+              <div style={{ height:'100%', width:`${prog.pct}%`, background:`linear-gradient(90deg, ${C.accent}, oklch(62% 0.22 55))`, borderRadius:99, transition:'width 0.6s' }}/>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:14 }}>
+            {[{val:xp,label:'XP'},{val:prog.level,label:'Level'},{val:0,label:'Meetups'},{val:`${doneQuests}/${quests.length}`,label:'Quests'}].map(s=>(
+              <div key={s.label} style={{ background:C.surface, borderRadius:12, padding:'10px 6px', textAlign:'center', border:`1px solid ${C.border}` }}>
+                <p style={{ color:C.text, fontWeight:800, fontSize:16 }}>{s.val}</p>
+                <p style={{ color:C.muted, fontSize:10, marginTop:2 }}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Badges */}
+          <div style={{ marginBottom:14 }}>
+            <p style={{ color:C.muted, fontSize:11, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', marginBottom:9 }}>Badges</p>
+            <div style={{ display:'flex', gap:8 }}>
+              {[{e:'🌟',l:'New Arrival'},{e:'📍',l:'First Pin'},{e:'🗺️',l:'Explorer'}].map(b=>(
+                <div key={b.l} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:13, padding:'10px 10px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:20 }}>{b.e}</div>
+                  <p style={{ color:C.muted, fontSize:10, marginTop:4 }}>{b.l}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Streak */}
+          <div style={{ background:`oklch(62% 0.2 30/0.1)`, border:`1px solid oklch(62% 0.2 30/0.25)`, borderRadius:16, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+            <span style={{ fontSize:28 }}>🔥</span>
+            <div>
+              <p style={{ color:C.text, fontWeight:700, fontSize:14 }}>1-day streak</p>
+              <p style={{ color:C.muted, fontSize:12, marginTop:1 }}>Come back tomorrow to keep it going!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APP STATE (global)
+// ─────────────────────────────────────────────────────────────────────────────
+const INITIAL_INCOMING = [
+  { id:'req-demo-1', sender_name:'Jordan K.', username:'jordan_k', color:'oklch(58% 0.16 270)', distance_m:450, message:"Hey! Want to grab coffee nearby? 🙌" },
+];
+
+function App() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('lu3_state')||'{}'); } catch { return {}; } })();
+
+  const [tab,      setTab]      = useState(saved.tab   || 'map');
+  const [xp,       setXp]       = useState(saved.xp    || 50);
+  const [quests,   setQuests]   = useState(saved.quests || MOCK_QUESTS);
+  const [user]                  = useState(saved.user  || { displayName:'You', username:'you', bio:'New to LinkUp!', interests:['Coffee meetups','Explore the city'] });
+
+  const [xpToasts,      setXpToasts]      = useState([]);
+  const [levelUpModal,  setLevelUpModal]  = useState(null);
+  const [requestModal,  setRequestModal]  = useState(null);
+  const [incomingReqs,  setIncomingReqs]  = useState(INITIAL_INCOMING);
+
+  function persist(updates) {
+    localStorage.setItem('lu3_state', JSON.stringify({ tab, xp, quests, user, ...updates }));
+  }
+
+  function awardXP(amount, coins=0) {
+    const toastId = Date.now();
+    setXpToasts(t => [...t, { id:toastId, xp:amount, coins }]);
+    setTimeout(() => setXpToasts(t => t.filter(e=>e.id!==toastId)), 2000);
+
+    setXp(prev => {
+      const newXp = prev + amount;
+      const prevLevel = levelFromXp(prev);
+      const newLevel  = levelFromXp(newXp);
+      if (newLevel > prevLevel) setTimeout(() => setLevelUpModal(newLevel), 400);
+      persist({ xp: newXp });
+      return newXp;
+    });
+  }
+
+  function handleSendRequest(target) {
+    setRequestModal(target);
+  }
+
+  function handleRequestSent({ xp: xpAmt }) {
+    setTimeout(() => {
+      setRequestModal(null);
+      awardXP(xpAmt || 5);
+      setQuests(q => q.map(qst => qst.key==='first_linkup' ? { ...qst, progress:Math.min((qst.progress||0)+1, qst.target), done:(qst.progress||0)+1>=qst.target, claimable:(qst.progress||0)+1>=qst.target&&!qst.done } : qst.key==='daily_request' ? { ...qst, progress:Math.min((qst.progress||0)+1, qst.target), done:(qst.progress||0)+1>=qst.target } : qst));
+    }, 800);
+  }
+
+  function handleAccept(reqId) {
+    setIncomingReqs(r => r.filter(x=>x.id!==reqId));
+    awardXP(15, 2);
+  }
+
+  function handleDecline(reqId) {
+    setIncomingReqs(r => r.filter(x=>x.id!==reqId));
+  }
+
+  function handleClaimQuest(key) {
+    const q = quests.find(x=>x.key===key);
+    if (q) {
+      awardXP(q.xp, q.coins);
+      setQuests(qs => qs.map(x => x.key===key ? { ...x, claimable:false } : x));
+    }
+  }
+
+  function goTab(t) { setTab(t); persist({ tab:t }); }
+
+  const tabScreens = {
+    map:     <MapScreen user={user} xp={xp} onRequestUser={handleSendRequest} incomingRequests={incomingReqs} onAccept={handleAccept} onDecline={handleDecline}/>,
+    people:  <PeopleScreen onRequestUser={handleSendRequest} incomingRequests={incomingReqs} onAccept={handleAccept} onDecline={handleDecline}/>,
+    quests:  <QuestsScreen quests={quests} onClaim={handleClaimQuest}/>,
+    rank:    <RankScreen myXp={xp} myUsername={user.username}/>,
+    profile: <ProfileScreen user={user} xp={xp} quests={quests}/>,
+  };
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'oklch(14% 0.02 265)' }}>
+      <div className="phone">
+        <div style={{ height:'100%', display:'flex', flexDirection:'column', position:'relative' }}>
+          <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
+            {tabScreens[tab] || tabScreens.map}
+            <XPToast events={xpToasts}/>
+            {levelUpModal && <LevelUpModal level={levelUpModal} onDismiss={()=>setLevelUpModal(null)}/>}
+            {requestModal && <RequestModal target={requestModal} onSend={handleRequestSent} onClose={()=>setRequestModal(null)}/>}
+          </div>
+          <BottomNav active={tab} onTab={goTab} inboxCount={incomingReqs.length}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
