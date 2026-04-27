@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <meta name="theme-color" content="#0d0d14" />
+    <title>LinkUp</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; }
+      body {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        background: oklch(14% 0.02 265);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      .phone {
+        width: 390px;
+        height: 844px;
+        background: oklch(11% 0.015 265);
+        border-radius: 48px;
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 0 0 1px oklch(30% 0.02 265), 0 40px 80px oklch(0% 0 0 / 0.6);
+      }
+      @media (max-height: 900px) { .phone { transform: scale(0.88); transform-origin: center; } }
+      @media (max-height: 780px) { .phone { transform: scale(0.76); } }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+      @keyframes slideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      @keyframes ping { 0%, 100% { transform: scale(1); opacity: .7; } 50% { transform: scale(1.55); opacity: 0; } }
+      @keyframes pop { 0% { transform: scale(0.5); opacity: 0; } 70% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+      @keyframes xpFloat { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-44px); } }
+      @keyframes scanline { 0% { top: 8px; } 100% { top: calc(100% - 8px); } }
+      @keyframes gpsRing { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(2.2); opacity: 0; } }
+      @keyframes countUp { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+      * { -webkit-tap-highlight-color: transparent; }
+      input::placeholder, textarea::placeholder { color: oklch(38% 0.01 265); }
+      ::-webkit-scrollbar { width: 0; }
+      textarea { resize: none; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

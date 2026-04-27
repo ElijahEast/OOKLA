@@ -17,6 +17,7 @@ const shopRoutes        = require('./routes/shop');
 const searchRoutes      = require('./routes/search');
 const notifRoutes       = require('./routes/notifications');
 const safetyRoutes      = require('./routes/safety');
+const groupRoutes       = require('./routes/groups');
 const { errorHandler } = require('./middleware/errorHandler');
 const { verifyAccessToken } = require('./utils/jwt');
 
@@ -65,6 +66,7 @@ app.use('/api/shop',           shopRoutes);
 app.use('/api/search',         searchRoutes);
 app.use('/api/notifications',  notifRoutes);
 app.use('/api/safety',         safetyRoutes);
+app.use('/api/groups',         groupRoutes);
 
 // ─── Error Handler ─────────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -91,6 +93,8 @@ io.on('connection', (socket) => {
   console.log(`🔌 ${socket.user.username} connected`);
   socket.on('join_conversation', (convId) => socket.join(convId));
   socket.on('leave_conversation', (convId) => socket.leave(convId));
+  socket.on('join_group', (groupId) => socket.join(`group:${groupId}`));
+  socket.on('leave_group', (groupId) => socket.leave(`group:${groupId}`));
   socket.on('disconnect', () => console.log(`❌ ${socket.user.username} disconnected`));
 });
 
