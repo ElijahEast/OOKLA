@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { C, levelFromXp } from './utils/constants';
 import { MOCK_EVENTS, MOCK_QUESTS, NOTIF_TEMPLATES } from './utils/data';
+import { auth } from './utils/api';
 
-import { BottomNav, XPToast, LevelUpModal, NotifCenter } from './components/ui';
+import { BottomNav, XPToast, LevelUpModal, NotifCenter, Spinner } from './components/ui';
 import { UserProfilePage, PinSheet, RequestModal } from './components/UserProfilePage';
 
+import { AuthScreen } from './screens/AuthScreen';
 import { ExploreScreen } from './screens/ExploreScreen';
 import { PeopleScreen } from './screens/PeopleScreen';
 import { EventsScreen } from './screens/EventsScreen';
@@ -25,13 +27,6 @@ function load() {
   } catch { return {}; }
 }
 
-const DEFAULT_USER = {
-  displayName: 'You',
-  username: 'you',
-  bio: 'New to LinkUp!',
-  interests: ['Coffee meetups', 'Explore the city'],
-};
-
 const DEFAULT_FRIENDS = [
   { id: 2, username: 'jordan_k', display_name: 'Jordan K.', level: 12, xp: 890, bio: 'Skater & photographer.', color: 'oklch(58% 0.16 270)', distance_m: 450, total_meetups: 18, current_streak: 6 },
 ];
@@ -45,8 +40,64 @@ const DEFAULT_FRIEND_REQS = [
 ];
 
 export default function App() {
+  const [authState, setAuthState] = useState('loading'); // 'loading' | 'authed' | 'unauthed'
+  const [authUser, setAuthUser] = useState(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('lu_access_token');
+    if (!token) { setAuthState('unauthed'); return; }
+    auth.me()
+      .then(data => { setAuthUser(data.user); setAuthState('authed'); })
+      .catch(() => {
+        localStorage.removeItem('lu_access_token');
+        localStorage.removeItem('lu_refresh_token');
+        setAuthState('unauthed');
+      });
+  }, []);
+
+  function handleAuth(user) {
+    setAuthUser(user);
+    setAuthState('authed');
+  }
+
+  function handleLogout() {
+    const refresh = localStorage.getItem('lu_refresh_token');
+    auth.logout(refresh).catch(() => {});
+    localStorage.removeItem('lu_access_token');
+    localStorage.removeItem('lu_refresh_token');
+    localStorage.removeItem(STORAGE_KEY);
+    setAuthUser(null);
+    setAuthState('unauthed');
+  }
+
+  if (authState === 'loading') {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.bg }}>
+        <Spinner size={32} />
+      </div>
+    );
+  }
+
+  if (authState === 'unauthed') {
+    return (
+      <div style={{ height: '100vh', background: C.bg }}>
+        <AuthScreen onAuth={handleAuth} />
+      </div>
+    );
+  }
+
+  return <MainApp authUser={authUser} onLogout={handleLogout} />;
+}
+
+function MainApp({ authUser, onLogout }) {
   const saved = load();
-  const user = saved.user || DEFAULT_USER;
+
+  const user = saved.user || {
+    displayName: authUser?.display_name || authUser?.username || 'You',
+    username: authUser?.username || 'you',
+    bio: 'New to LinkUp!',
+    interests: ['Coffee meetups', 'Explore the city'],
+  };
 
   const [tab, setTab] = useState(saved.tab || 'map');
   const [xp, setXp] = useState(saved.xp || 50);
@@ -193,7 +244,7 @@ export default function App() {
   }
 
   function handleCreateGroup(input) {
-    const me = { username: 'you', display_name: 'You', color: C.accent };
+    const me = { username: user.username, display_name: user.displayName || user.display_name, color: C.accent };
     let g;
     if (Array.isArray(input)) {
       const members = [me, ...input.map(f => ({ username: f.username, display_name: f.display_name, color: f.color, level: f.level }))];
@@ -221,12 +272,14 @@ export default function App() {
     setGroupChat(null);
   }
 
+  const appStyle = { height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative', background: C.bg, overflow: 'hidden' };
+
   if (groupChat) {
     return (
-      <Wrap>
+      <div style={appStyle}>
         <GroupChatScreen
           group={groups.find(g => g.id === groupChat.id) || groupChat}
-          me={{ username: 'you', display_name: 'You' }}
+          me={{ username: user.username, display_name: user.displayName || user.display_name }}
           goldTheme={goldTheme}
           onBack={() => setGroupChat(null)}
           onMeetupVerified={handleGroupMeetupVerified}
@@ -234,13 +287,13 @@ export default function App() {
         />
         <XPToast events={xpToasts} />
         {levelUpModal && <LevelUpModal level={levelUpModal} onDismiss={() => setLevelUpModal(null)} />}
-      </Wrap>
+      </div>
     );
   }
 
   if (chatWith) {
     return (
-      <Wrap>
+      <div style={appStyle}>
         <ChatScreen
           partner={chatWith}
           goldTheme={goldTheme}
@@ -257,7 +310,7 @@ export default function App() {
             onClose={() => setMeetupSafetyFor(null)}
           />
         )}
-      </Wrap>
+      </div>
     );
   }
 
@@ -311,74 +364,65 @@ export default function App() {
         user={user} xp={xp} coins={coins}
         quests={quests} friends={friends}
         onOpenSafety={() => setSafetyHubOpen(true)}
+        onLogout={onLogout}
       />
     ),
   };
 
   return (
-    <Wrap>
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          {screens[tab] || screens.map}
-          <XPToast events={xpToasts} />
-          {levelUpModal && <LevelUpModal level={levelUpModal} onDismiss={() => setLevelUpModal(null)} />}
-          {requestModal && <RequestModal target={requestModal} onSend={handleRequestSent} onClose={() => setRequestModal(null)} />}
-          {pinSheet && (
-            <PinSheet
-              pin={pinSheet}
-              isFriend={friends.some(f => f.username === pinSheet.username)}
-              onClose={() => setPinSheet(null)}
-              onSendRequest={t => { setPinSheet(null); setRequestModal(t); }}
-              onAddFriend={t => { setPinSheet(null); handleAddFriend(t); }}
-              onOpenChat={openChat}
-              onViewProfile={viewProfile}
-              onBlockReport={u => setBlockReportTarget(u)}
-            />
-          )}
-          {viewingUser && (
-            <UserProfilePage
-              user={viewingUser}
-              isFriend={friends.some(f => f.username === viewingUser.username)}
-              isBlocked={blockedUsers.some(b => b.username === viewingUser.username)}
-              onBack={() => setViewingUser(null)}
-              onAddFriend={handleAddFriend}
-              onSendRequest={t => { setViewingUser(null); setRequestModal(t); }}
-              onOpenChat={openChat}
-              onBlockReport={u => setBlockReportTarget(u)}
-              onUnblock={u => { handleUnblock(u); setViewingUser(null); }}
-            />
-          )}
-          {notifOpen && <NotifCenter notifs={notifs} onClose={() => setNotifOpen(false)} onMarkAll={markAllRead} />}
-        </div>
-        {safetyHubOpen && (
-          <SafetyHubScreen
-            friends={friends} blockedUsers={blockedUsers}
-            trustedContacts={trustedContacts} locationPrecision={locationPrecision}
-            onBack={() => setSafetyHubOpen(false)}
-            onSetPrecision={setLocationPrecision}
-            onAddTrusted={handleAddTrusted}
-            onRemoveTrusted={handleRemoveTrusted}
-            onUnblock={handleUnblock}
+    <div style={appStyle}>
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {screens[tab] || screens.map}
+        <XPToast events={xpToasts} />
+        {levelUpModal && <LevelUpModal level={levelUpModal} onDismiss={() => setLevelUpModal(null)} />}
+        {requestModal && <RequestModal target={requestModal} onSend={handleRequestSent} onClose={() => setRequestModal(null)} />}
+        {pinSheet && (
+          <PinSheet
+            pin={pinSheet}
+            isFriend={friends.some(f => f.username === pinSheet.username)}
+            onClose={() => setPinSheet(null)}
+            onSendRequest={t => { setPinSheet(null); setRequestModal(t); }}
+            onAddFriend={t => { setPinSheet(null); handleAddFriend(t); }}
+            onOpenChat={openChat}
+            onViewProfile={viewProfile}
+            onBlockReport={u => setBlockReportTarget(u)}
           />
         )}
-        {blockReportTarget && (
-          <BlockReportModal
-            target={blockReportTarget}
-            onBlock={handleBlock}
-            onReport={handleReport}
-            onClose={() => setBlockReportTarget(null)}
+        {viewingUser && (
+          <UserProfilePage
+            user={viewingUser}
+            isFriend={friends.some(f => f.username === viewingUser.username)}
+            isBlocked={blockedUsers.some(b => b.username === viewingUser.username)}
+            onBack={() => setViewingUser(null)}
+            onAddFriend={handleAddFriend}
+            onSendRequest={t => { setViewingUser(null); setRequestModal(t); }}
+            onOpenChat={openChat}
+            onBlockReport={u => setBlockReportTarget(u)}
+            onUnblock={u => { handleUnblock(u); setViewingUser(null); }}
           />
         )}
-        <BottomNav active={tab} onTab={goTab} inboxCount={inboxCount} />
+        {notifOpen && <NotifCenter notifs={notifs} onClose={() => setNotifOpen(false)} onMarkAll={markAllRead} />}
       </div>
-    </Wrap>
-  );
-}
-
-function Wrap({ children }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'oklch(14% 0.02 265)' }}>
-      <div className="phone">{children}</div>
+      {safetyHubOpen && (
+        <SafetyHubScreen
+          friends={friends} blockedUsers={blockedUsers}
+          trustedContacts={trustedContacts} locationPrecision={locationPrecision}
+          onBack={() => setSafetyHubOpen(false)}
+          onSetPrecision={setLocationPrecision}
+          onAddTrusted={handleAddTrusted}
+          onRemoveTrusted={handleRemoveTrusted}
+          onUnblock={handleUnblock}
+        />
+      )}
+      {blockReportTarget && (
+        <BlockReportModal
+          target={blockReportTarget}
+          onBlock={handleBlock}
+          onReport={handleReport}
+          onClose={() => setBlockReportTarget(null)}
+        />
+      )}
+      <BottomNav active={tab} onTab={goTab} inboxCount={inboxCount} />
     </div>
   );
 }

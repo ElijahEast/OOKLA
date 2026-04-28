@@ -3,7 +3,7 @@ import { C, levelProgress } from '../utils/constants';
 import { Avatar, StatusBar } from '../components/ui';
 import { LEADERBOARD } from '../utils/data';
 
-export function ProfileScreen({ user, xp, coins, quests, friends, onOpenSafety }) {
+export function ProfileScreen({ user, xp, coins, quests, friends, onOpenSafety, onLogout }) {
   const [tab, setTab] = useState('overview');
   const prog = levelProgress(xp);
   const medals = ['🥇', '🥈', '🥉'];
@@ -13,9 +13,16 @@ export function ProfileScreen({ user, xp, coins, quests, friends, onOpenSafety }
       <StatusBar />
       <div style={{ padding: '12px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ color: C.text, fontWeight: 800, fontSize: 20, letterSpacing: '-0.02em' }}>Profile</h2>
-        <button onClick={onOpenSafety} style={{ background: `${C.success}18`, border: `1px solid ${C.success}44`, borderRadius: 10, padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 14 }}>🛡️</span><span style={{ color: C.success, fontSize: 12, fontWeight: 700 }}>Safety</span>
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onOpenSafety} style={{ background: `${C.success}18`, border: `1px solid ${C.success}44`, borderRadius: 10, padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 14 }}>🛡️</span><span style={{ color: C.success, fontSize: 12, fontWeight: 700 }}>Safety</span>
+          </button>
+          {onLogout && (
+            <button onClick={onLogout} style={{ background: `${C.error}18`, border: `1px solid ${C.error}44`, borderRadius: 10, padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ color: C.error, fontSize: 12, fontWeight: 700 }}>Sign Out</span>
+            </button>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 0, margin: '10px 18px', background: C.surface, borderRadius: 13, padding: 4, flexShrink: 0 }}>
         {[{ id: 'overview', l: 'Overview' }, { id: 'leaderboard', l: 'Leaderboard' }, { id: 'badges', l: 'Badges' }].map(t => (
