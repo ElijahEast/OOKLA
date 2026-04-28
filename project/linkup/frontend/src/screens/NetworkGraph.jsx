@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { C, levelFromXp } from '../utils/constants';
 import { Icon, Btn, StatusBar } from '../components/ui';
 import { getSocial } from '../utils/data';

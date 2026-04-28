@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { C } from '../utils/constants';
 import { Icon, Btn, Spinner, QRCode } from '../components/ui';
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { C } from '../utils/constants';
 
 export function Spinner({ color = '#fff', size = 20 }) {

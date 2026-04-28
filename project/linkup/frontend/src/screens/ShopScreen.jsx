@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { C } from '../utils/constants';
 import { Icon, Btn, StatusBar } from '../components/ui';
 import { MOCK_SHOP } from '../utils/data';

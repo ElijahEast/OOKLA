@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { C, levelFromXp } from './utils/constants';
 import { MOCK_EVENTS, MOCK_QUESTS, NOTIF_TEMPLATES } from './utils/data';
 

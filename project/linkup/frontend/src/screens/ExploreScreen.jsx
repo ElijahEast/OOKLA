@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { C, levelProgress, fmtDist } from '../utils/constants';
 import { Icon, Avatar, Btn, StatusBar, Wordmark, InboxNotif } from '../components/ui';
 import { NetworkGraph } from './NetworkGraph';

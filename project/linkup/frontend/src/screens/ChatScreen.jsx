@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { C } from '../utils/constants';
 import { Icon, Avatar, Btn, StatusBar } from '../components/ui';
 import { MeetupVerifyModal } from './MeetupVerifyModal';

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { C, levelProgress } from '../utils/constants';
 import { Avatar, StatusBar } from '../components/ui';
 import { LEADERBOARD } from '../utils/data';

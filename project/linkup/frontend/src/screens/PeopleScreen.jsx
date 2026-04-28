@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { C, fmtDist } from '../utils/constants';
 import { Icon, Avatar, Btn, StatusBar } from '../components/ui';
 import { ALL_USERS, GROUP_EMOJIS } from '../utils/data';
