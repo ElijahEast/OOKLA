@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { requireAuth } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 
 // All group routes require authentication
-router.use(requireAuth);
+router.use(authenticate);
 
 // ── GET /api/groups — list groups the current user belongs to ─────────────────
 router.get('/', async (req, res, next) => {
