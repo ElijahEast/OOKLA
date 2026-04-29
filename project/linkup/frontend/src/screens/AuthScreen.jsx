@@ -24,6 +24,10 @@ export function AuthScreen({ onAuth }) {
         data = await auth.login({ identifier: form.email, password: form.password });
       } else {
         if (!form.username.trim()) { setError('Username is required.'); setLoading(false); return; }
+        if (form.username.length < 3) { setError('Username must be at least 3 characters.'); setLoading(false); return; }
+        if (form.password.length < 8) { setError('Password must be at least 8 characters.'); setLoading(false); return; }
+        if (!/[A-Z]/.test(form.password)) { setError('Password must contain an uppercase letter.'); setLoading(false); return; }
+        if (!/[0-9]/.test(form.password)) { setError('Password must contain a number.'); setLoading(false); return; }
         data = await auth.signup({ email: form.email, username: form.username, password: form.password });
       }
       localStorage.setItem('lu_access_token', data.accessToken);
@@ -80,6 +84,10 @@ export function AuthScreen({ onAuth }) {
             minLength={8}
             style={inputStyle}
           />
+
+          {mode === 'signup' && (
+            <p style={{ color: C.muted, fontSize: 11, marginTop: -4 }}>Password needs 8+ chars, one uppercase, one number</p>
+          )}
 
           {error && (
             <div style={{ background: 'oklch(55% 0.2 25/0.12)', border: '1px solid oklch(55% 0.2 25/0.3)', borderRadius: 10, padding: '9px 13px' }}>
