@@ -3109,33 +3109,46 @@ function App(){
   function handleSignOut() {
     authAPI.logout().catch(() => {}); // Ignore errors, still clear local state
     clearTokens();
+    // Clear local data so next user starts fresh
+    localStorage.removeItem('lu5_state');
     setCurrentUser(null);
     setAuthScreen('splash');
   }
 
   // ── App state ─────────────────────────────────────────────────────────────
-  const load=()=>{try{const s=JSON.parse(localStorage.getItem('lu5_state')||'{}');if(s._v!=='6.0'){localStorage.removeItem('lu5_state');return{};}return s;}catch{return{}}};
-  const saved=load();
+  // Load saved state only if it belongs to the current user
+  const load=(username)=>{
+    try{
+      const s=JSON.parse(localStorage.getItem('lu5_state')||'{}');
+      if(s._v!=='6.0'){localStorage.removeItem('lu5_state');return null;}
+      // Check if saved data belongs to this user
+      if(s._user&&s._user!==username){localStorage.removeItem('lu5_state');return null;}
+      return s;
+    }catch{return null;}
+  };
+
+  // Get saved data for current user (or null if different user/no data)
+  const saved=currentUser?load(currentUser.username):null;
+
   const user=currentUser ? {
     displayName: currentUser.display_name || currentUser.username,
     username: currentUser.username,
     bio: currentUser.bio || 'New to LinkUp!',
     interests: ['Coffee meetups', 'Explore the city']
-  } : (saved.user||{displayName:'You',username:'you',bio:'New to LinkUp!',interests:['Coffee meetups','Explore the city']});
+  } : {displayName:'You',username:'you',bio:'New to LinkUp!',interests:['Coffee meetups','Explore the city']};
 
-  const [tab,      setTab]      = useState(saved.tab    ||'map');
-  const [xp,       setXp]       = useState(saved.xp     ||50);
-  const [coins,    setCoins]    = useState(saved.coins  ||20);
-  const [quests,   setQuests]   = useState(saved.quests ||MOCK_QUESTS);
-  const [friends,  setFriends]  = useState(saved.friends||[
-    {id:2,username:'jordan_k',display_name:'Jordan K.',level:12,xp:890,bio:'Skater & photographer.',color:'oklch(58% 0.16 270)',distance_m:450,total_meetups:18,current_streak:6},
-  ]);
-  const [owned,    setOwned]    = useState(saved.owned  ||[]);
-  const [goldTheme,setGoldTheme]= useState(saved.goldTheme||false);
+  // Default values for new accounts (no mock data)
+  const [tab,      setTab]      = useState(saved?.tab    ||'map');
+  const [xp,       setXp]       = useState(saved?.xp     ||0);
+  const [coins,    setCoins]    = useState(saved?.coins  ||0);
+  const [quests,   setQuests]   = useState(saved?.quests ||MOCK_QUESTS);
+  const [friends,  setFriends]  = useState(saved?.friends||[]);
+  const [owned,    setOwned]    = useState(saved?.owned  ||[]);
+  const [goldTheme,setGoldTheme]= useState(saved?.goldTheme||false);
   const [notifs,   setNotifs]   = useState(NOTIF_TEMPLATES);
-  const [userEvents,setUserEvents]=useState(saved.userEvents||[]);
-  const [rsvped,    setRsvped]   =useState(saved.rsvped   ||[]);
-  const [groups,    setGroups]   =useState(saved.groups   ||[]);
+  const [userEvents,setUserEvents]=useState(saved?.userEvents||[]);
+  const [rsvped,    setRsvped]   =useState(saved?.rsvped   ||[]);
+  const [groups,    setGroups]   =useState(saved?.groups   ||[]);
   const [groupChat, setGroupChat]=useState(null);
 
   // ── Safety state ───────────────────────────────────────────────────────────
@@ -3153,12 +3166,8 @@ function App(){
   const [chatWith,     setChatWith]     = useState(null);
   const [viewingUser,  setViewingUser]  = useState(null);
   const [notifOpen,    setNotifOpen]    = useState(false);
-  const [incomingReqs, setIncomingReqs] = useState([
-    {id:'req-1',sender_name:'Alex M.',username:'alex_m',color:'oklch(58% 0.16 190)',distance_m:180,message:"Hey! Want to grab coffee? ☕"},
-  ]);
-  const [friendReqs,   setFriendReqs]   = useState([
-    {id:'fr-1',display_name:'Jordan K.',username:'jordan_k',level:12,color:'oklch(58% 0.16 270)'},
-  ]);
+  const [incomingReqs, setIncomingReqs] = useState([]);
+  const [friendReqs,   setFriendReqs]   = useState([]);
 
   const unreadNotifs=notifs.filter(n=>!n.read).length;
   const inboxCount=incomingReqs.length+friendReqs.length;
@@ -3166,15 +3175,28 @@ function App(){
   // Load backend data when user logs in or session restores
   useEffect(() => {
     if (currentUser) {
-      // Set XP and coins from user profile
+      // Reset to backend values (override any stale local data)
       if (currentUser.xp !== undefined) setXp(currentUser.xp);
       if (currentUser.coins !== undefined) setCoins(currentUser.coins);
-      // Load additional data (friends, shop items, etc.)
+      // Clear any leftover data from previous session
+      setFriends([]);
+      setOwned([]);
+      setFriendReqs([]);
+      setIncomingReqs([]);
+      // Load fresh data from backend
       loadBackendData();
     }
   }, [currentUser]);
 
-  function persist(updates){localStorage.setItem('lu5_state',JSON.stringify({_v:'6.0',tab,xp,coins,quests,friends,owned,goldTheme,user,userEvents,rsvped,groups,...updates}));}
+  function persist(updates){
+    if(!currentUser) return; // Don't persist if not logged in
+    localStorage.setItem('lu5_state',JSON.stringify({
+      _v:'6.0',
+      _user:currentUser.username, // Tie data to this account
+      tab,xp,coins,quests,friends,owned,goldTheme,userEvents,rsvped,groups,
+      ...updates
+    }));
+  }
 
   function awardXP(amount,awardCoins=0){
     const xpAmt=Math.max(0,amount), coinAmt=Math.max(0,awardCoins);
