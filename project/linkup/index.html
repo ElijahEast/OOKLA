@@ -2868,18 +2868,18 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           </div>
         ))}
       </div>
-      {friends.length>0&&<button onClick={()=>setShowFriendList(!showFriendList)} style={{background:showFriendList?C.accentL:C.surface,border:`1px solid ${showFriendList?C.accent:C.border}`,borderRadius:8,padding:'4px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:'inherit'}}>
-        <span style={{fontSize:11,fontWeight:600,color:showFriendList?C.accent:C.muted}}>{primaryFriends.size}/{MAX_PRIMARY_FRIENDS}</span>
+      {friends.filter(f=>!f.parent).length>0&&<button onClick={()=>setShowFriendList(!showFriendList)} style={{background:showFriendList?C.accentL:C.surface,border:`1px solid ${showFriendList?C.accent:C.border}`,borderRadius:8,padding:'4px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:'inherit'}}>
+        <span style={{fontSize:11,fontWeight:600,color:showFriendList?C.accent:C.muted}}>{[...primaryFriends].filter(u=>friends.some(f=>f.username===u&&!f.parent)).length}/{MAX_PRIMARY_FRIENDS}</span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={showFriendList?C.accent:C.muted} strokeWidth="2.5"><path d={showFriendList?"M18 15l-6-6-6 6":"M6 9l6 6 6-6"}/></svg>
       </button>}
     </div>
 
-    {/* Primary Friends List */}
-    {showFriendList&&friends.length>0&&<div style={{padding:'0 18px 8px',flexShrink:0}}>
+    {/* Primary Friends List — only root friends (not FOFs) */}
+    {showFriendList&&friends.filter(f=>!f.parent).length>0&&<div style={{padding:'0 18px 8px',flexShrink:0}}>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'8px',maxHeight:160,overflowY:'auto'}}>
         <p style={{color:C.muted,fontSize:10,fontWeight:700,marginBottom:6,padding:'0 4px'}}>SHOW ON GRAPH (max {MAX_PRIMARY_FRIENDS})</p>
         <div style={{display:'flex',flexDirection:'column',gap:4}}>
-          {friends.map(f=>{
+          {friends.filter(f=>!f.parent).map(f=>{
             const isOn=primaryFriends.has(f.username);
             const canToggleOn=isOn||primaryFriends.size<MAX_PRIMARY_FRIENDS;
             return <button key={f.username} onClick={()=>canToggleOn&&togglePrimary(f.username)}
