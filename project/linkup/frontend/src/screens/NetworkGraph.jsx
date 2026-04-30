@@ -40,14 +40,14 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
     rootFriends.forEach((f, i) => {
       const angle = (2 * Math.PI * i / count) - (Math.PI / 2);
       const pos = assignPos(f.username, R1 * Math.cos(angle), R1 * Math.sin(angle));
-      ns.push({ id: f.username, label: f.display_name, color: f.color, level: f.level, r: 22, x: pos.x, y: pos.y, kind: 'friend', data: f, angle });
+      ns.push({ id: f.username, label: f.display_name || f.username || '?', color: f.color, level: f.level, r: 22, x: pos.x, y: pos.y, kind: 'friend', data: f, angle });
       es.push({ from: '__me', to: f.username, strength: 'strong' });
     });
 
     derivedFriends.forEach(f => {
       const pos = posRef.current[f.username];
       if (!pos) return;
-      ns.push({ id: f.username, label: f.display_name, color: f.color, level: f.level, r: 20, x: pos.x, y: pos.y, kind: 'friend', data: f });
+      ns.push({ id: f.username, label: f.display_name || f.username || '?', color: f.color, level: f.level, r: 20, x: pos.x, y: pos.y, kind: 'friend', data: f });
       const parent = friendParentRef.current[f.username];
       es.push({ from: parent, to: f.username, strength: 'strong' });
     });
@@ -66,7 +66,7 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
         const fofAngle = baseAngle + (j - (fofs.length - 1) / 2) * spread;
         const R2 = Math.hypot(fn.x, fn.y) + 110;
         const pos = assignPos(ff.username, R2 * Math.cos(fofAngle), R2 * Math.sin(fofAngle));
-        ns.push({ id: ff.username, label: ff.display_name, color: ff.color, level: ff.level, r: 18, x: pos.x, y: pos.y, kind: 'fof', data: ff, parent: f.username, angle: fofAngle });
+        ns.push({ id: ff.username, label: ff.display_name || ff.username || '?', color: ff.color, level: ff.level, r: 18, x: pos.x, y: pos.y, kind: 'fof', data: ff, parent: f.username, angle: fofAngle });
         es.push({ from: f.username, to: ff.username, strength: 'weak' });
 
         if (pending[ff.username]) {
@@ -79,7 +79,7 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
             const R3 = R2 + 90;
             if (!ns.find(n => n.id === fff.username)) {
               const p3 = assignPos(fff.username, R3 * Math.cos(a3), R3 * Math.sin(a3));
-              ns.push({ id: fff.username, label: fff.display_name, color: fff.color, level: fff.level, r: 14, x: p3.x, y: p3.y, kind: 'fof2', data: fff, parent: ff.username });
+              ns.push({ id: fff.username, label: fff.display_name || fff.username || '?', color: fff.color, level: fff.level, r: 14, x: p3.x, y: p3.y, kind: 'fof2', data: fff, parent: ff.username });
               es.push({ from: ff.username, to: fff.username, strength: 'vweak' });
             }
           });
@@ -323,14 +323,14 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
                   <text x={n.x} y={n.y + n.r * 0.35} textAnchor="middle"
                     fontSize={n.kind === 'me' ? 15 : n.r > 20 ? 12 : n.r > 16 ? 10 : 9}
                     fontWeight="800" fill="#fff" style={{ pointerEvents: 'none', userSelect: 'none' }}>
-                    {n.kind === 'me' ? ((user.display_name || user.displayName)?.[0]?.toUpperCase() || 'Y') : n.label.split(' ').map(w => w[0]).join('').slice(0, 2)}
+                    {n.kind === 'me' ? ((user.display_name || user.displayName)?.[0]?.toUpperCase() || 'Y') : (n.label || '?').split(' ').map(w => w[0]).join('').slice(0, 2)}
                   </text>
                   <text x={n.x} y={n.y + n.r + 14} textAnchor="middle"
                     fontSize={n.kind === 'me' ? 12 : n.kind === 'friend' ? 11 : 10}
                     fontWeight={n.kind === 'me' ? '800' : '600'}
                     fill={n.kind === 'me' ? C.accent : isFriendNode ? C.text : `${C.muted}`}
                     style={{ pointerEvents: 'none', userSelect: 'none' }}>
-                    {n.kind === 'me' ? 'You' : n.label.split(' ')[0]}
+                    {n.kind === 'me' ? 'You' : (n.label || '?').split(' ')[0]}
                   </text>
                   {(n.kind === 'friend' || isPend) && <>
                     <rect x={n.x - 15} y={n.y + n.r + 17} width={30} height={14} rx={7} fill={C.accentL} />
@@ -346,7 +346,7 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
           <div style={{ position: 'absolute', bottom: 10, left: 10, right: 10, background: 'oklch(16% 0.018 265 / 0.96)', backdropFilter: 'blur(16px)', borderRadius: 20, padding: '13px 15px', border: `1px solid ${C.border}`, animation: 'fadeUp 0.2s ease', zIndex: 10 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', gap: 11, alignItems: 'center', marginBottom: 10 }}>
               <div style={{ width: 42, height: 42, borderRadius: '50%', background: selNode.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                {selNode.label.split(' ').map(w => w[0]).join('').slice(0, 2)}
+                {(selNode.label || '?').split(' ').map(w => w[0]).join('').slice(0, 2)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -402,7 +402,7 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
                 {[...multiSel].slice(0, 6).map(u => {
                   const f = graphFriends.find(x => x.username === u);
                   if (!f) return null;
-                  return <div key={u} style={{ width: 26, height: 26, borderRadius: '50%', background: f.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', border: `2px solid ${C.bg}`, marginRight: -6 }}>{f.display_name[0]}</div>;
+                  return <div key={u} style={{ width: 26, height: 26, borderRadius: '50%', background: f.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', border: `2px solid ${C.bg}`, marginRight: -6 }}>{(f.display_name || f.username || '?')[0]}</div>;
                 })}
                 {multiSel.size > 6 && <div style={{ width: 26, height: 26, borderRadius: '50%', background: C.surface, border: `2px solid ${C.bg}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: C.muted, marginRight: -6 }}>+{multiSel.size - 6}</div>}
               </div>
