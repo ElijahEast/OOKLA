@@ -2484,152 +2484,97 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     });
   },[friends]);
 
-  // ── Collision detection helpers ─────────────────────────────────────────────
-  function nodesOverlap(n1,n2,padding=8){
-    const dx=n1.x-n2.x, dy=n1.y-n2.y;
-    const dist=Math.sqrt(dx*dx+dy*dy);
-    return dist<(n1.r+n2.r+padding);
-  }
+  // ── Collision resolution ─────────────────────────────────────────────────────
 
-  function lineIntersectsCircle(x1,y1,x2,y2,cx,cy,r,padding=6){
-    // Check if line segment (x1,y1)-(x2,y2) intersects circle at (cx,cy) with radius r
+  // Check if edge passes through a node
+  function edgeHitsNode(x1,y1,x2,y2,cx,cy,r){
     const dx=x2-x1, dy=y2-y1;
     const fx=x1-cx, fy=y1-cy;
     const a=dx*dx+dy*dy;
+    if(a<0.001) return false;
     const b=2*(fx*dx+fy*dy);
-    const c=fx*fx+fy*fy-(r+padding)*(r+padding);
-    let disc=b*b-4*a*c;
+    const c=fx*fx+fy*fy-r*r;
+    const disc=b*b-4*a*c;
     if(disc<0) return false;
-    disc=Math.sqrt(disc);
-    const t1=(-b-disc)/(2*a);
-    const t2=(-b+disc)/(2*a);
-    return (t1>=0&&t1<=1)||(t2>=0&&t2<=1);
+    const sqrtDisc=Math.sqrt(disc);
+    const t1=(-b-sqrtDisc)/(2*a);
+    const t2=(-b+sqrtDisc)/(2*a);
+    // Only count as hit if intersection is in middle of edge (not at endpoints)
+    return (t1>0.1&&t1<0.9)||(t2>0.1&&t2<0.9);
   }
 
-  function linesIntersect(x1,y1,x2,y2,x3,y3,x4,y4){
-    // Check if line segment (x1,y1)-(x2,y2) intersects (x3,y3)-(x4,y4)
-    const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
-    if(Math.abs(d)<0.0001) return false;
-    const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;
-    const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/d;
-    return t>0.05&&t<0.95&&u>0.05&&u<0.95; // Exclude endpoints
-  }
-
-  // Push overlapping nodes apart
-  function resolveNodeCollisions(nodeList,iterations=15){
+  // Push overlapping nodes radially outward from center
+  function resolveNodeCollisions(nodeList,iterations=10){
     const nodes=[...nodeList];
     for(let iter=0;iter<iterations;iter++){
       let moved=false;
       for(let i=0;i<nodes.length;i++){
         for(let j=i+1;j<nodes.length;j++){
           const n1=nodes[i], n2=nodes[j];
-          if(n1.id==='__me'||n2.id==='__me') continue; // Don't move center node
+          if(n1.id==='__me'||n2.id==='__me') continue;
           const dx=n2.x-n1.x, dy=n2.y-n1.y;
           const dist=Math.sqrt(dx*dx+dy*dy)||0.1;
-          const minDist=n1.r+n2.r+12;
+          const minDist=n1.r+n2.r+8;
           if(dist<minDist){
-            const overlap=(minDist-dist)/2;
-            const ux=dx/dist, uy=dy/dist;
-            // Push both nodes apart (unless one is 'me')
-            n1.x-=ux*overlap*0.6;
-            n1.y-=uy*overlap*0.6;
-            n2.x+=ux*overlap*0.6;
-            n2.y+=uy*overlap*0.6;
             moved=true;
+            const push=(minDist-dist)/2+1;
+            // Push the farther node outward radially
+            const r1=Math.hypot(n1.x,n1.y)||1;
+            const r2=Math.hypot(n2.x,n2.y)||1;
+            if(r2>=r1){
+              // Push n2 outward
+              const scale=(r2+push)/r2;
+              n2.x*=scale; n2.y*=scale;
+            }else{
+              // Push n1 outward
+              const scale=(r1+push)/r1;
+              n1.x*=scale; n1.y*=scale;
+            }
           }
         }
       }
       if(!moved) break;
     }
-    // Update posRef with resolved positions
     nodes.forEach(n=>{
       if(n.id!=='__me') posRef.current[n.id]={x:n.x,y:n.y};
     });
     return nodes;
   }
 
-  // Find nodes that an edge passes through (excluding endpoints)
-  function findBlockingNodes(edge,allNodes){
-    const fromNode=allNodes.find(n=>n.id===edge.from);
-    const toNode=allNodes.find(n=>n.id===edge.to);
-    if(!fromNode||!toNode) return [];
-    return allNodes.filter(n=>
-      n.id!==edge.from&&n.id!==edge.to&&
-      lineIntersectsCircle(fromNode.x,fromNode.y,toNode.x,toNode.y,n.x,n.y,n.r)
-    );
-  }
-
-  // Calculate curved path to avoid blocking nodes
-  function getCurvedPath(fromNode,toNode,blockingNodes,curveAmount=0){
-    const needsCurve=blockingNodes.length>0||curveAmount!==0;
-    if(!needsCurve){
-      return `M${fromNode.x},${fromNode.y}L${toNode.x},${toNode.y}`;
-    }
-    // Calculate midpoint and offset perpendicular to the line
-    const mx=(fromNode.x+toNode.x)/2;
-    const my=(fromNode.y+toNode.y)/2;
-    const dx=toNode.x-fromNode.x;
-    const dy=toNode.y-fromNode.y;
-    const len=Math.sqrt(dx*dx+dy*dy)||1;
-    // Perpendicular direction
-    const px=-dy/len, py=dx/len;
-    // Determine which side to curve (away from blocking nodes)
-    let side=curveAmount;
-    blockingNodes.forEach(bn=>{
-      const cross=(bn.x-fromNode.x)*py-(bn.y-fromNode.y)*px;
-      side+=cross>0?1:-1;
-    });
-    const curveDir=side>=0?-1:1;
-    const baseCurve=Math.abs(curveAmount)*20;
-    const curveDist=Math.min(80,len*0.3+blockingNodes.length*15+baseCurve);
-    const cx=mx+px*curveDir*curveDist;
-    const cy=my+py*curveDir*curveDist;
-    return `M${fromNode.x},${fromNode.y}Q${cx},${cy} ${toNode.x},${toNode.y}`;
-  }
-
-  // Pre-compute edge paths with collision avoidance
+  // Build edge paths - straight lines, only curve if passing through a node
   function computeEdgePaths(edgeList,nodeList){
-    const paths=[];
-    const edgeData=edgeList.map(e=>{
+    return edgeList.map(e=>{
       const f=nodeList.find(n=>n.id===e.from);
       const t=nodeList.find(n=>n.id===e.to);
-      return{...e,fromNode:f,toNode:t,curveAmount:0};
-    }).filter(ed=>ed.fromNode&&ed.toNode);
+      if(!f||!t) return null;
 
-    // First pass: curve edges that pass through nodes
-    edgeData.forEach(ed=>{
-      ed.blockingNodes=findBlockingNodes(ed,nodeList);
-    });
+      // Check if this edge passes through any other node
+      const blocking=nodeList.filter(n=>
+        n.id!==e.from&&n.id!==e.to&&
+        edgeHitsNode(f.x,f.y,t.x,t.y,n.x,n.y,n.r+4)
+      );
 
-    // Second pass: detect edge-edge intersections and add curve
-    for(let i=0;i<edgeData.length;i++){
-      for(let j=i+1;j<edgeData.length;j++){
-        const e1=edgeData[i], e2=edgeData[j];
-        // Skip if edges share an endpoint
-        if(e1.from===e2.from||e1.from===e2.to||e1.to===e2.from||e1.to===e2.to) continue;
-        // Check if the straight lines would intersect
-        if(linesIntersect(
-          e1.fromNode.x,e1.fromNode.y,e1.toNode.x,e1.toNode.y,
-          e2.fromNode.x,e2.fromNode.y,e2.toNode.x,e2.toNode.y
-        )){
-          // Curve the shorter edge (or the weaker one)
-          const len1=Math.hypot(e1.toNode.x-e1.fromNode.x,e1.toNode.y-e1.fromNode.y);
-          const len2=Math.hypot(e2.toNode.x-e2.fromNode.x,e2.toNode.y-e2.fromNode.y);
-          if(len1<len2||e1.strength==='vweak'){
-            e1.curveAmount=(e1.curveAmount||0)+1;
-          }else{
-            e2.curveAmount=(e2.curveAmount||0)-1;
-          }
-        }
+      let path;
+      if(blocking.length===0){
+        // Straight line
+        path=`M${f.x},${f.y}L${t.x},${t.y}`;
+      }else{
+        // Must curve around blocking node(s)
+        const mx=(f.x+t.x)/2, my=(f.y+t.y)/2;
+        const dx=t.x-f.x, dy=t.y-f.y;
+        const len=Math.hypot(dx,dy)||1;
+        const px=-dy/len, py=dx/len; // perpendicular
+        // Curve away from blocking nodes
+        let side=0;
+        blocking.forEach(bn=>{
+          side+=(bn.x-mx)*py-(bn.y-my)*px>0?1:-1;
+        });
+        const dir=side>=0?-1:1;
+        const curve=Math.min(40,15+blocking.length*10);
+        path=`M${f.x},${f.y}Q${mx+px*dir*curve},${my+py*dir*curve} ${t.x},${t.y}`;
       }
-    }
-
-    // Generate final paths
-    edgeData.forEach(ed=>{
-      ed.path=getCurvedPath(ed.fromNode,ed.toNode,ed.blockingNodes,ed.curveAmount);
-    });
-
-    return edgeData;
+      return{...e,path};
+    }).filter(Boolean);
   }
 
   // ── Build nodes & edges ─ deterministic layout with persistent position cache
