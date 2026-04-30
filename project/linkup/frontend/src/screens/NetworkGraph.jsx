@@ -28,7 +28,17 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
   const containerRef = useRef(null);
   const [tf, setTf] = useState({ x: 195, y: 310, scale: 1 });
   const [selected, setSelected] = useState(null);
-  const [graphFriends, setGraphFriends] = useState(friends);
+  const [graphFriends, setGraphFriends] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('lu_graph_friends') || 'null');
+      if (saved && saved.length) {
+        const merged = [...saved];
+        friends.forEach(f => { if (!merged.find(m => m.username === f.username)) merged.push(f); });
+        return merged;
+      }
+    } catch {}
+    return friends;
+  });
   const [pending, setPending] = useState({});
   const [multiMode, setMultiMode] = useState(false);
   const [multiSel, setMultiSel] = useState(new Set());
@@ -49,6 +59,7 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     setGraphFriends(prev => {
       const merged = [...friends];
       prev.forEach(p => { if (!merged.find(m => m.username === p.username)) merged.push(p); });
+      try { localStorage.setItem('lu_graph_friends', JSON.stringify(merged)); } catch {}
       return merged;
     });
   }, [friends]);
@@ -226,7 +237,11 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
       setParent(nodeData.username, fofNode.parent);
     }
     setTimeout(() => {
-      setGraphFriends(prev => [...prev, { ...nodeData, distance_m: 600 }]);
+      setGraphFriends(prev => {
+        const next = [...prev, { ...nodeData, distance_m: 600 }];
+        try { localStorage.setItem('lu_graph_friends', JSON.stringify(next)); } catch {}
+        return next;
+      });
       onAddFriend && onAddFriend(nodeData);
     }, 800);
   }
