@@ -133,6 +133,35 @@ const authAPI = {
   getMe: () => apiCall('/api/auth/me'),
 };
 
+// ── Data Sync API ─────────────────────────────────────────────────────────────
+const dataAPI = {
+  // Friends
+  getFriends: () => apiCall('/api/friends'),
+  getPendingFriends: () => apiCall('/api/friends/pending'),
+  sendFriendRequest: (username) => apiCall('/api/friends/request', {
+    method: 'POST',
+    body: JSON.stringify({ username })
+  }),
+  respondToFriend: (id, action) => apiCall(`/api/friends/${id}/respond`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action })
+  }),
+
+  // Shop & Inventory
+  getShop: () => apiCall('/api/shop'),
+  buyItem: (itemKey) => apiCall('/api/shop/buy', {
+    method: 'POST',
+    body: JSON.stringify({ item_key: itemKey })
+  }),
+
+  // Profile
+  getProfile: (username) => apiCall(`/api/profiles/${username}`),
+  updateProfile: (updates) => apiCall('/api/profiles/me', {
+    method: 'PATCH',
+    body: JSON.stringify(updates)
+  }),
+};
+
 // ── Mock data ─────────────────────────────────────────────────────────────────
 const ALL_USERS = [
   {id:1,username:'alex_m',   display_name:'Alex M.',   distance_m:180,  level:7,  xp:340,  bio:'Coffee addict. Always down for spontaneous meetups.',color:'oklch(58% 0.16 190)',total_meetups:8, current_streak:2},
@@ -2922,10 +2951,63 @@ function App(){
     }
   }, []);
 
+  // Load user data from backend
+  async function loadBackendData() {
+    try {
+      // Load friends from backend
+      const friendsRes = await dataAPI.getFriends().catch(() => ({ friends: [] }));
+      if (friendsRes.friends && friendsRes.friends.length > 0) {
+        const backendFriends = friendsRes.friends.map(f => ({
+          id: f.friend_id,
+          username: f.username,
+          display_name: f.display_name,
+          level: f.level || 1,
+          xp: f.xp || 0,
+          avatar_url: f.avatar_url,
+          color: `oklch(58% 0.16 ${Math.floor(Math.random() * 360)})`,
+          distance_m: Math.floor(Math.random() * 1500) + 100,
+        }));
+        setFriends(backendFriends);
+        persist({ friends: backendFriends });
+      }
+
+      // Load shop data (coins, owned items)
+      const shopRes = await dataAPI.getShop().catch(() => ({ coins: 20, items: [] }));
+      if (shopRes.coins !== undefined) {
+        setCoins(shopRes.coins);
+        persist({ coins: shopRes.coins });
+      }
+      if (shopRes.items) {
+        const ownedKeys = shopRes.items.filter(i => i.owned).map(i => i.key);
+        if (ownedKeys.length > 0) {
+          setOwned(ownedKeys);
+          persist({ owned: ownedKeys });
+          if (ownedKeys.includes('chat_theme')) setGoldTheme(true);
+        }
+      }
+
+      // Load pending friend requests
+      const pendingRes = await dataAPI.getPendingFriends().catch(() => ({ requests: [] }));
+      if (pendingRes.requests && pendingRes.requests.length > 0) {
+        const pending = pendingRes.requests.map(r => ({
+          id: r.id,
+          display_name: r.display_name,
+          username: r.username,
+          level: r.level || 1,
+          color: `oklch(58% 0.16 ${Math.floor(Math.random() * 360)})`,
+        }));
+        setFriendReqs(pending);
+      }
+    } catch (err) {
+      console.error('Failed to load backend data:', err);
+    }
+  }
+
   function handleAuthSuccess(user) {
     setCurrentUser(user);
     setAuthScreen(null);
     setAuthLoading(false);
+    // Note: useEffect will load backend data when currentUser changes
   }
 
   function handleSignOut() {
@@ -2985,6 +3067,17 @@ function App(){
   const unreadNotifs=notifs.filter(n=>!n.read).length;
   const inboxCount=incomingReqs.length+friendReqs.length;
 
+  // Load backend data when user logs in or session restores
+  useEffect(() => {
+    if (currentUser) {
+      // Set XP and coins from user profile
+      if (currentUser.xp !== undefined) setXp(currentUser.xp);
+      if (currentUser.coins !== undefined) setCoins(currentUser.coins);
+      // Load additional data (friends, shop items, etc.)
+      loadBackendData();
+    }
+  }, [currentUser]);
+
   function persist(updates){localStorage.setItem('lu5_state',JSON.stringify({_v:'6.0',tab,xp,coins,quests,friends,owned,goldTheme,user,userEvents,rsvped,groups,...updates}));}
 
   function awardXP(amount,awardCoins=0){
@@ -3008,6 +3101,10 @@ function App(){
   function handleDeclineMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));}
 
   function handleAddFriend(target){
+    // Send friend request to backend (optimistic update)
+    dataAPI.sendFriendRequest(target.username).catch(err => {
+      console.log('Friend request failed (may already exist):', err);
+    });
     setTimeout(()=>{
       setFriends(prev=>{
         if(prev.some(f=>f.username===target.username)) return prev;
@@ -3027,18 +3124,43 @@ function App(){
   }
   function handleAcceptFriend(id){
     const req=friendReqs.find(r=>r.id===id);
-    if(req){setFriends(prev=>{if(prev.some(f=>f.username===req.username))return prev;const u=[...prev,{...req,distance_m:450}];persist({friends:u});return u;});awardXP(10);}
+    if(req){
+      // Accept on backend
+      dataAPI.respondToFriend(id, 'accepted').catch(err => {
+        console.log('Accept friend failed:', err);
+      });
+      setFriends(prev=>{if(prev.some(f=>f.username===req.username))return prev;const u=[...prev,{...req,distance_m:450}];persist({friends:u});return u;});
+      awardXP(10);
+    }
     setFriendReqs(r=>r.filter(x=>x.id!==id));
   }
-  function handleDeclineFriend(id){setFriendReqs(r=>r.filter(x=>x.id!==id));}
+  function handleDeclineFriend(id){
+    // Block/decline on backend
+    dataAPI.respondToFriend(id, 'blocked').catch(err => {
+      console.log('Decline friend failed:', err);
+    });
+    setFriendReqs(r=>r.filter(x=>x.id!==id));
+  }
 
-  function handleBuy(item){
+  async function handleBuy(item){
     if(coins<item.cost) return;
-    setCoins(prev=>{const n=Math.max(0,prev-item.cost);persist({coins:n});return n;});
-    setOwned(prev=>{const u=[...prev,item.key];persist({owned:u});return u;});
-    if(item.key==='chat_theme'){setGoldTheme(true);persist({goldTheme:true});}
-    // Add purchase notification
-    setNotifs(n=>[{id:`n-buy-${Date.now()}`,type:'shop',icon:'🛍️',title:`Purchased: ${item.name}`,body:`🪙 −${item.cost} coins`,ts:Date.now(),read:false},...n]);
+    // Try to buy on backend first
+    try {
+      const result = await dataAPI.buyItem(item.key);
+      // Update coins from backend response
+      setCoins(result.coins_remaining);
+      persist({coins: result.coins_remaining});
+      setOwned(prev=>{const u=[...prev,item.key];persist({owned:u});return u;});
+      if(item.key==='chat_theme'){setGoldTheme(true);persist({goldTheme:true});}
+      setNotifs(n=>[{id:`n-buy-${Date.now()}`,type:'shop',icon:'🛍️',title:`Purchased: ${item.name}`,body:`🪙 −${item.cost} coins`,ts:Date.now(),read:false},...n]);
+    } catch (err) {
+      // Fallback to local-only if backend fails (e.g., item not in backend DB)
+      console.log('Backend buy failed, using local fallback:', err);
+      setCoins(prev=>{const n=Math.max(0,prev-item.cost);persist({coins:n});return n;});
+      setOwned(prev=>{const u=[...prev,item.key];persist({owned:u});return u;});
+      if(item.key==='chat_theme'){setGoldTheme(true);persist({goldTheme:true});}
+      setNotifs(n=>[{id:`n-buy-${Date.now()}`,type:'shop',icon:'🛍️',title:`Purchased: ${item.name}`,body:`🪙 −${item.cost} coins`,ts:Date.now(),read:false},...n]);
+    }
   }
 
   function handleClaimQuest(key){const q=quests.find(x=>x.key===key);if(q){awardXP(q.xp,q.coins);setQuests(qs=>qs.map(x=>x.key===key?{...x,claimable:false}:x));}}
