@@ -4,7 +4,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "postgis";  -- for location queries
 
 -- ─── USERS (auth identity) ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
@@ -29,8 +28,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   avatar_url      TEXT,
   date_of_birth   DATE,
   gender          VARCHAR(30),
-  -- Location (PostGIS point: longitude, latitude)
-  location        GEOGRAPHY(POINT, 4326),
+  -- Location (lat/lng as decimals)
+  latitude        DECIMAL(9,6),
+  longitude       DECIMAL(9,6),
   location_updated_at TIMESTAMPTZ,
   -- Gamification
   xp              INTEGER DEFAULT 0,
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_users_email      ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_username   ON users(username);
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
-CREATE INDEX IF NOT EXISTS idx_profiles_location ON profiles USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_profiles_location ON profiles(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash    ON refresh_tokens(token_hash);
 
