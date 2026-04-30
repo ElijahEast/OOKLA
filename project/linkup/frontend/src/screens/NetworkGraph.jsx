@@ -26,7 +26,10 @@ export function NetworkGraph(props) {
 
 function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenChat, onViewProfile, onCreateGroup, embedded }) {
   const containerRef = useRef(null);
-  const [tf, setTf] = useState({ x: 195, y: 310, scale: 1 });
+  const [tf, setTf] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('lu_graph_tf') || 'null') || { x: 195, y: 310, scale: 1 }; }
+    catch { return { x: 195, y: 310, scale: 1 }; }
+  });
   const [selected, setSelected] = useState(null);
   const [graphFriends, setGraphFriends] = useState(() => {
     try {
@@ -54,6 +57,10 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     try { friendParentRef.current = JSON.parse(localStorage.getItem('lu_graph_parents') || '{}'); }
     catch { friendParentRef.current = {}; }
   }
+
+  useEffect(() => {
+    try { localStorage.setItem('lu_graph_tf', JSON.stringify(tf)); } catch {}
+  }, [tf]);
 
   useEffect(() => {
     setGraphFriends(prev => {
@@ -281,7 +288,7 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
           <div style={{ display: 'flex', gap: 5 }}>
             <button onClick={() => zoomBtn(1)} style={{ width: 32, height: 32, borderRadius: 9, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.text, fontSize: 19, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
             <button onClick={() => zoomBtn(-1)} style={{ width: 32, height: 32, borderRadius: 9, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.text, fontSize: 19, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-            <button onClick={() => setTf({ x: 195, y: 310, scale: 1 })} style={{ width: 32, height: 32, borderRadius: 9, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.muted, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⌂</button>
+            <button onClick={() => { const t = { x: 195, y: 310, scale: 1 }; setTf(t); try { localStorage.setItem('lu_graph_tf', JSON.stringify(t)); } catch {} }} style={{ width: 32, height: 32, borderRadius: 9, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.muted, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⌂</button>
           </div>
         </div>
       )}
@@ -301,7 +308,7 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
             </button>
             <button onClick={() => zoomBtn(1)} style={{ width: 28, height: 28, borderRadius: 8, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.text, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
             <button onClick={() => zoomBtn(-1)} style={{ width: 28, height: 28, borderRadius: 8, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.text, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-            <button onClick={() => setTf({ x: 195, y: 310, scale: 1 })} style={{ width: 28, height: 28, borderRadius: 8, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.muted, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⌂</button>
+            <button onClick={() => { const t = { x: 195, y: 310, scale: 1 }; setTf(t); try { localStorage.setItem('lu_graph_tf', JSON.stringify(t)); } catch {} }} style={{ width: 28, height: 28, borderRadius: 8, background: C.surface, border: `1px solid ${C.border}`, cursor: 'pointer', color: C.muted, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⌂</button>
           </div>
         </div>
       )}
