@@ -158,18 +158,18 @@ function Btn({children,onClick,variant='primary',loading,disabled,full=true,smal
 function XPToast({events}){return <div style={{position:'absolute',top:80,right:14,zIndex:200,display:'flex',flexDirection:'column',gap:5,pointerEvents:'none'}}>{events.map(ev=><div key={ev.id} style={{background:C.accent,color:'#fff',fontWeight:800,fontSize:12,borderRadius:20,padding:'5px 12px',display:'flex',alignItems:'center',gap:5,animation:'xpFloat 2s ease forwards',boxShadow:`0 4px 14px ${C.accent}66`}}><Icon name="zap" size={12} color="#fff"/>+{ev.xp} XP{ev.coins?<> · 🪙+{ev.coins}</>:null}</div>)}</div>;}
 function LevelUpModal({level,onDismiss}){return <div style={{position:'absolute',inset:0,zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.75)',animation:'fadeIn 0.2s'}}><div style={{background:C.surface,borderRadius:28,padding:'34px 30px',textAlign:'center',width:300,border:`1px solid ${C.border}`,animation:'pop 0.4s ease'}}><div style={{fontSize:52,marginBottom:10}}>🎉</div><div style={{background:`linear-gradient(135deg,${C.accent},${C.gold})`,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',fontSize:28,fontWeight:800,marginBottom:6}}>Level {level}!</div><p style={{color:C.muted,fontSize:13,lineHeight:1.7,marginBottom:20}}>You've leveled up! Keep exploring and meeting people.</p><Btn onClick={onDismiss}>Awesome! 🚀</Btn></div></div>;}
 
-// ── Error Boundary for Graph ───────────────────────────────────────────────────
+// ── Error Boundary ─────────────────────────────────────────────────────────────
 class GraphErrorBoundary extends React.Component {
-  constructor(props){super(props);this.state={hasError:false};}
-  static getDerivedStateFromError(){return{hasError:true};}
-  componentDidCatch(err,info){console.error('Graph error:',err,info);}
+  constructor(props){super(props);this.state={hasError:false,errorMsg:''};}
+  static getDerivedStateFromError(err){return{hasError:true,errorMsg:err?.message||'Unknown error'};}
+  componentDidCatch(err,info){console.error('Graph crashed:',err,info);}
   render(){
     if(this.state.hasError){
-      return <div style={{height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,padding:32,background:C.bg}}>
-        <div style={{fontSize:48}}>😵</div>
-        <p style={{color:C.text,fontWeight:700,fontSize:16}}>Something went wrong</p>
-        <p style={{color:C.muted,fontSize:13,textAlign:'center'}}>The graph encountered an error.</p>
-        <Btn small onClick={()=>this.setState({hasError:false})}>Try Again</Btn>
+      return <div style={{height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,padding:24,background:C.bg}}>
+        <div style={{fontSize:40}}>😵</div>
+        <p style={{color:C.text,fontWeight:700,fontSize:15}}>Graph crashed</p>
+        <p style={{color:C.muted,fontSize:12,textAlign:'center',maxWidth:250}}>{this.state.errorMsg}</p>
+        <Btn small onClick={()=>this.setState({hasError:false,errorMsg:''})}>Reload Graph</Btn>
       </div>;
     }
     return this.props.children;
@@ -2245,91 +2245,76 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   },[friends]);
 
   // ── Build nodes & edges ─ deterministic layout with persistent position cache
+  const {nodes,edges}=buildGraph();
   function assignPos(username,x,y){
-    // Validate coordinates
-    const safeX=Number.isFinite(x)?x:0;
-    const safeY=Number.isFinite(y)?y:0;
-    if(!posRef.current[username]) posRef.current[username]={x:safeX,y:safeY};
+    if(!posRef.current[username]) posRef.current[username]={x,y};
     return posRef.current[username];
   }
   function buildGraph(){
-    try{
     const ns=[], es=[];
     // Center
-    ns.push({id:'__me',label:user?.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
+    ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
 
-    // Filter out any malformed friend objects
-    const validFriends=(graphFriends||[]).filter(f=>f&&typeof f.username==='string');
-    const validBlocked=(blockedUsers||[]).filter(b=>b&&typeof b.username==='string');
-    const allFriends=validFriends.filter(f=>!validBlocked.some(b=>b.username===f.username));
-
+    const allFriends=graphFriends.filter(f=>!blockedUsers.some(b=>b.username===f.username));
     // Split: "root" friends (in inner ring) vs friends-added-from-graph (stay near their parent)
-    const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current?.[f.username]);
-    const derivedFriends=allFriends.filter(f=>f.parent||friendParentRef.current?.[f.username]);
+    // Use f.parent (persisted) with friendParentRef as fallback for current session
+    const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current[f.username]);
+    const derivedFriends=allFriends.filter(f=>f.parent||friendParentRef.current[f.username]);
     const count=rootFriends.length||1;
     const R1=Math.max(110, count*28);
 
     rootFriends.forEach((f,i)=>{
-      if(!f.username) return;
       const angle=(2*Math.PI*i/count)-(Math.PI/2);
       const pos=assignPos(f.username,R1*Math.cos(angle),R1*Math.sin(angle));
-      ns.push({id:f.username,label:f.display_name||f.username,color:f.color||C.muted,level:f.level||1,r:22,x:pos.x,y:pos.y,kind:'friend',data:f,angle});
+      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:22,x:pos.x,y:pos.y,kind:'friend',data:f,angle});
       es.push({from:'__me',to:f.username,strength:'strong'});
     });
 
     // Derived friends keep their cached position and connect to their parent
     derivedFriends.forEach(f=>{
-      if(!f.username) return;
       // Use f.graphPos (persisted) with posRef as fallback
-      const pos=f.graphPos||posRef.current?.[f.username];
-      if(!pos||!Number.isFinite(pos.x)||!Number.isFinite(pos.y)) return;
+      const pos=f.graphPos||posRef.current[f.username];
+      if(!pos) return; // shouldn't happen — they were added from graph so their pos was cached
       // Ensure posRef is updated for current session
       if(!posRef.current[f.username]) posRef.current[f.username]={x:pos.x,y:pos.y};
-      ns.push({id:f.username,label:f.display_name||f.username,color:f.color||C.muted,level:f.level||1,r:20,x:pos.x,y:pos.y,kind:'friend',data:f});
+      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:20,x:pos.x,y:pos.y,kind:'friend',data:f});
       // Use f.parent (persisted) with friendParentRef as fallback
-      const parent=f.parent||friendParentRef.current?.[f.username];
-      if(parent) es.push({from:parent,to:f.username,strength:'strong'});
+      const parent=f.parent||friendParentRef.current[f.username];
+      es.push({from:parent,to:f.username,strength:'strong'});
     });
 
     // FOFs — radiate out from each friend node (both root + derived)
     ns.filter(n=>n.kind==='friend').forEach(fn=>{
       const f=fn.data;
-      if(!f||!f.username) return;
       // Compute outward angle from parent (or from origin for root)
-      const fnX=Number.isFinite(fn.x)?fn.x:0;
-      const fnY=Number.isFinite(fn.y)?fn.y:0;
-      const baseAngle=Math.atan2(fnY,fnX);
+      const baseAngle=Math.atan2(fn.y,fn.x); // angle from center to this friend
       const fofs=(getSocial(f.username)||[]).filter(ff=>
-        ff&&ff.username&&
         !allFriends.some(m=>m.username===ff.username)&&
-        !validBlocked.some(b=>b.username===ff.username)
+        !blockedUsers.some(b=>b.username===ff.username)
       ).slice(0,3);
 
       fofs.forEach((ff,j)=>{
-        if(!ff.username) return;
         // skip if already placed as node (could be another friend's FOF)
         if(ns.find(n=>n.id===ff.username)) return;
         const spread=fofs.length===1?0:0.55;
         const fofAngle=baseAngle+(j-(fofs.length-1)/2)*spread;
-        const R2=Math.hypot(fnX,fnY)+110;
+        const R2=Math.hypot(fn.x,fn.y)+110;
         const pos=assignPos(ff.username,R2*Math.cos(fofAngle),R2*Math.sin(fofAngle));
-        ns.push({id:ff.username,label:ff.display_name||ff.username,color:ff.color||C.muted,level:ff.level||1,r:18,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
+        ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:18,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
         es.push({from:f.username,to:ff.username,strength:'weak'});
 
         // Level 3 — if pending (just added) show their FOFs too
         if(pending[ff.username]){
           const fofFofs=(getSocial(ff.username)||[]).filter(fff=>
-            fff&&fff.username&&
             !allFriends.some(m=>m.username===fff.username)&&
             !ns.find(n=>n.id===fff.username)
           ).slice(0,2);
           fofFofs.forEach((fff,k)=>{
-            if(!fff.username) return;
             const a3=fofAngle+(k===0?-0.4:0.4);
             const R3=R2+90;
             if(!ns.find(n=>n.id===fff.username)){
               const p3=assignPos(fff.username,R3*Math.cos(a3),R3*Math.sin(a3));
-              ns.push({id:fff.username,label:fff.display_name||fff.username,color:fff.color||C.muted,level:fff.level||1,r:14,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
+              ns.push({id:fff.username,label:fff.display_name,color:fff.color,level:fff.level,r:14,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
               es.push({from:ff.username,to:fff.username,strength:'vweak'});
             }
           });
@@ -2337,26 +2322,12 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
       });
     });
     return{nodes:ns,edges:es};
-    }catch(err){
-      console.error('buildGraph error:',err);
-      // Return minimal graph with just the center node
-      return{nodes:[{id:'__me',label:'You',color:C.accent,level:1,r:30,x:0,y:0,kind:'me'}],edges:[]};
-    }
   }
-  const {nodes,edges}=buildGraph();
 
 
   // ── Pointer pan/zoom ──────────────────────────────────────────────────────
   const pointerRef=useRef(null);
   const pinchRef=useRef(null);
-
-  // Safe transform setter - prevents NaN/Infinity from breaking the view
-  function safeTf(newTf){
-    const x=Number.isFinite(newTf.x)?newTf.x:195;
-    const y=Number.isFinite(newTf.y)?newTf.y:310;
-    const scale=Number.isFinite(newTf.scale)&&newTf.scale>0?Math.min(3,Math.max(0.3,newTf.scale)):1;
-    return{x,y,scale};
-  }
 
   function getContainerPoint(e){
     const rect=containerRef.current?.getBoundingClientRect()||{left:0,top:0};
@@ -2377,7 +2348,7 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     const dx=e.clientX-pointerRef.current.startX;
     const dy=e.clientY-pointerRef.current.startY;
     if(Math.abs(dx)>3||Math.abs(dy)>3) pointerRef.current.moved=true;
-    setTf(t=>safeTf({...t,x:pointerRef.current.tfX+dx,y:pointerRef.current.tfY+dy}));
+    setTf(t=>({...t,x:pointerRef.current.tfX+dx,y:pointerRef.current.tfY+dy}));
   }
   function onPointerUp(e){
     if(pointerRef.current?.id===e.pointerId) pointerRef.current=null;
@@ -2398,18 +2369,16 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     e.preventDefault();
     [...e.changedTouches].forEach(t=>{ touchesRef.current[t.identifier]={x:t.clientX,y:t.clientY}; });
     const pts=Object.values(touchesRef.current);
-    if(pts.length===2&&pinchRef.current&&pinchRef.current.dist>0){
+    if(pts.length===2&&pinchRef.current){
       const newDist=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
       const ratio=newDist/pinchRef.current.dist;
-      if(!Number.isFinite(ratio)||ratio<=0) return;
       const ns=Math.min(3,Math.max(0.3,pinchRef.current.scale*ratio));
       const {mx,my}=pinchRef.current;
-      const scaleRatio=pinchRef.current.scale>0?ns/pinchRef.current.scale:1;
-      setTf(safeTf({
+      setTf({
         scale:ns,
-        x:mx-(mx-pinchRef.current.tfX)*scaleRatio,
-        y:my-(my-pinchRef.current.tfY)*scaleRatio,
-      }));
+        x:mx-(mx-pinchRef.current.tfX)*(ns/pinchRef.current.scale),
+        y:my-(my-pinchRef.current.tfY)*(ns/pinchRef.current.scale),
+      });
     }
   }
   function onTouchEnd(e){
@@ -2425,8 +2394,8 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     const delta=e.deltaY>0?-0.12:0.12;
     setTf(t=>{
       const ns=Math.min(3,Math.max(0.3,t.scale+delta));
-      const ratio=t.scale>0?ns/t.scale:1;
-      return safeTf({scale:ns,x:mx-(mx-t.x)*ratio,y:my-(my-t.y)*ratio});
+      const ratio=ns/t.scale;
+      return{scale:ns,x:mx-(mx-t.x)*ratio,y:my-(my-t.y)*ratio};
     });
   }
 
@@ -2437,8 +2406,8 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     const mx=W/2,my=H/2;
     setTf(t=>{
       const ns=Math.min(3,Math.max(0.3,t.scale+dir*0.25));
-      const ratio=t.scale>0?ns/t.scale:1;
-      return safeTf({scale:ns,x:mx-(mx-t.x)*ratio,y:my-(my-t.y)*ratio});
+      const ratio=ns/t.scale;
+      return{scale:ns,x:mx-(mx-t.x)*ratio,y:my-(my-t.y)*ratio};
     });
   }
 
@@ -2543,13 +2512,11 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
             <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
           </filter>
         </defs>
-        <g transform={`translate(${Number.isFinite(tf.x)?tf.x:195},${Number.isFinite(tf.y)?tf.y:310}) scale(${Number.isFinite(tf.scale)&&tf.scale>0?tf.scale:1})`}>
+        <g transform={`translate(${tf.x},${tf.y}) scale(${tf.scale})`}>
           {/* Edges */}
           {edges.map((e,i)=>{
             const f=nodes.find(n=>n.id===e.from),t=nodes.find(n=>n.id===e.to);
             if(!f||!t) return null;
-            // Validate coordinates
-            if(!Number.isFinite(f.x)||!Number.isFinite(f.y)||!Number.isFinite(t.x)||!Number.isFinite(t.y)) return null;
             const sw=e.strength==='strong'?2:1;
             const op=e.strength==='strong'?0.5:e.strength==='weak'?0.25:0.12;
             const sc=e.strength==='strong'?C.accent:C.muted;
@@ -2558,8 +2525,6 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           })}
           {/* Nodes */}
           {nodes.map(n=>{
-            // Skip nodes with invalid coordinates
-            if(!Number.isFinite(n.x)||!Number.isFinite(n.y)||!Number.isFinite(n.r)) return null;
             const isSel=selected===n.id;
             const isFriendNode=n.kind==='friend';
             const isPend=pending[n.id];
