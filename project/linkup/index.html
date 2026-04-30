@@ -2443,6 +2443,8 @@ const SOCIAL_GRAPH={
 // ─────────────────────────────────────────────────────────────────────────────
 // NETWORK GRAPH
 // ─────────────────────────────────────────────────────────────────────────────
+const MAX_PRIMARY_FRIENDS=8;
+
 function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewProfile,onCreateGroup,embedded}){
   const containerRef=useRef(null);
 
@@ -2455,6 +2457,12 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   // Multi-select state — set of usernames (friends only eligible)
   const [multiMode,setMultiMode]=useState(false);
   const [multiSel,setMultiSel]=useState(new Set());
+  // ── Primary friends: which friends show on graph (max 8) ─
+  const [primaryFriends,setPrimaryFriends]=useState(()=>{
+    // Default: first 8 friends are primary
+    return new Set(friends.slice(0,MAX_PRIMARY_FRIENDS).map(f=>f.username));
+  });
+  const [showFriendList,setShowFriendList]=useState(false);
   // ── Position cache: username → {x,y}. Once assigned, positions never move. ─
   const posRef=useRef({'__me':{x:0,y:0}});
   // Track which friends were added from the graph (so we know their "home" root)
@@ -2467,6 +2475,17 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
       const merged=[...friends];
       prev.forEach(p=>{ if(!merged.find(m=>m.username===p.username)) merged.push(p); });
       return merged;
+    });
+    // Update primaryFriends when friends list changes
+    setPrimaryFriends(prev=>{
+      const updated=new Set([...prev].filter(u=>friends.some(f=>f.username===u)));
+      // If we have room, add new friends
+      friends.forEach(f=>{
+        if(updated.size<MAX_PRIMARY_FRIENDS&&!updated.has(f.username)){
+          updated.add(f.username);
+        }
+      });
+      return updated;
     });
   },[friends]);
 
@@ -2483,6 +2502,21 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
       }
     });
   },[friends]);
+
+  // Toggle a friend's primary status
+  function togglePrimary(username){
+    setPrimaryFriends(prev=>{
+      const next=new Set(prev);
+      if(next.has(username)){
+        next.delete(username);
+        // Clear cached position so they get repositioned when re-added
+        delete posRef.current[username];
+      }else if(next.size<MAX_PRIMARY_FRIENDS){
+        next.add(username);
+      }
+      return next;
+    });
+  }
 
   // ── Collision resolution ─────────────────────────────────────────────────────
 
@@ -2541,39 +2575,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     return nodes;
   }
 
-  // Build edge paths - straight lines, only curve if passing through a node
+  // Build edge data - always straight lines for geometric look
   function computeEdgePaths(edgeList,nodeList){
     return edgeList.map(e=>{
       const f=nodeList.find(n=>n.id===e.from);
       const t=nodeList.find(n=>n.id===e.to);
       if(!f||!t) return null;
-
-      // Check if this edge passes through any other node
-      const blocking=nodeList.filter(n=>
-        n.id!==e.from&&n.id!==e.to&&
-        edgeHitsNode(f.x,f.y,t.x,t.y,n.x,n.y,n.r+4)
-      );
-
-      let path;
-      if(blocking.length===0){
-        // Straight line
-        path=`M${f.x},${f.y}L${t.x},${t.y}`;
-      }else{
-        // Must curve around blocking node(s)
-        const mx=(f.x+t.x)/2, my=(f.y+t.y)/2;
-        const dx=t.x-f.x, dy=t.y-f.y;
-        const len=Math.hypot(dx,dy)||1;
-        const px=-dy/len, py=dx/len; // perpendicular
-        // Curve away from blocking nodes
-        let side=0;
-        blocking.forEach(bn=>{
-          side+=(bn.x-mx)*py-(bn.y-my)*px>0?1:-1;
-        });
-        const dir=side>=0?-1:1;
-        const curve=Math.min(40,15+blocking.length*10);
-        path=`M${f.x},${f.y}Q${mx+px*dir*curve},${my+py*dir*curve} ${t.x},${t.y}`;
-      }
-      return{...e,path};
+      return{...e,x1:f.x,y1:f.y,x2:t.x,y2:t.y};
     }).filter(Boolean);
   }
 
@@ -2591,70 +2599,66 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   function buildGraph(){
     const ns=[], es=[];
     const allFriends=graphFriends.filter(f=>!blockedUsers.some(b=>b.username===f.username));
+    // Only show primary friends on the graph
+    const visibleFriends=allFriends.filter(f=>primaryFriends.has(f.username));
 
-    // Only show center "You" node if there are friends
-    if(allFriends.length>0){
+    // Only show center "You" node if there are visible friends
+    if(visibleFriends.length>0){
       ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
     }
-    // Split: "root" friends (in inner ring) vs friends-added-from-graph (stay near their parent)
-    // Use f.parent (persisted) with friendParentRef as fallback for current session
-    const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current[f.username]);
-    const derivedFriends=allFriends.filter(f=>f.parent||friendParentRef.current[f.username]);
-    const count=rootFriends.length||1;
-    const R1=Math.max(110, count*28);
 
-    rootFriends.forEach((f,i)=>{
+    // Geometric layout: evenly space friends in a circle
+    const count=visibleFriends.length||1;
+    const R1=Math.max(100,Math.min(140,80+count*15)); // Radius scales with count
+
+    visibleFriends.forEach((f,i)=>{
+      // Even angular spacing, starting from top
       const angle=(2*Math.PI*i/count)-(Math.PI/2);
-      const pos=assignPos(f.username,R1*Math.cos(angle),R1*Math.sin(angle));
+      const x=R1*Math.cos(angle);
+      const y=R1*Math.sin(angle);
+      // Use cached position or assign new one
+      const pos=posRef.current[f.username]||{x,y};
+      if(!posRef.current[f.username]) posRef.current[f.username]=pos;
+
       ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:22,x:pos.x,y:pos.y,kind:'friend',data:f,angle});
       es.push({from:'__me',to:f.username,strength:'strong'});
     });
 
-    // Derived friends keep their cached position and connect to their parent
-    derivedFriends.forEach(f=>{
-      // Use f.graphPos (persisted) with posRef as fallback
-      const pos=f.graphPos||posRef.current[f.username];
-      if(!pos) return; // shouldn't happen — they were added from graph so their pos was cached
-      // Ensure posRef is updated for current session
-      if(!posRef.current[f.username]) posRef.current[f.username]={x:pos.x,y:pos.y};
-      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:20,x:pos.x,y:pos.y,kind:'friend',data:f});
-      // Use f.parent (persisted) with friendParentRef as fallback
-      const parent=f.parent||friendParentRef.current[f.username];
-      es.push({from:parent,to:f.username,strength:'strong'});
-    });
-
-    // FOFs — radiate out from each friend node (both root + derived)
+    // FOFs — radiate straight outward from each friend
     ns.filter(n=>n.kind==='friend').forEach(fn=>{
       const f=fn.data;
-      // Compute outward angle from parent (or from origin for root)
-      const baseAngle=Math.atan2(fn.y,fn.x); // angle from center to this friend
+      const baseAngle=Math.atan2(fn.y,fn.x);
       const fofs=(getSocial(f.username)||[]).filter(ff=>
         !allFriends.some(m=>m.username===ff.username)&&
         !blockedUsers.some(b=>b.username===ff.username)
       ).slice(0,3);
 
+      const R2=Math.hypot(fn.x,fn.y)+90; // Fixed distance from friend
       fofs.forEach((ff,j)=>{
-        // skip if already placed as node (could be another friend's FOF)
         if(ns.find(n=>n.id===ff.username)) return;
-        const spread=fofs.length===1?0:0.55;
-        const fofAngle=baseAngle+(j-(fofs.length-1)/2)*spread;
-        const R2=Math.hypot(fn.x,fn.y)+110;
-        const pos=assignPos(ff.username,R2*Math.cos(fofAngle),R2*Math.sin(fofAngle));
-        ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:18,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
+        // Spread FOFs in a narrow arc, centered on outward direction
+        const spreadAngle=fofs.length===1?0:(j-(fofs.length-1)/2)*0.4;
+        const fofAngle=baseAngle+spreadAngle;
+        const x=R2*Math.cos(fofAngle);
+        const y=R2*Math.sin(fofAngle);
+        const pos=posRef.current[ff.username]||{x,y};
+        if(!posRef.current[ff.username]) posRef.current[ff.username]=pos;
+
+        ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:16,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
         es.push({from:f.username,to:ff.username,strength:'weak'});
 
-        // Level 3 — if pending (just added) show their FOFs too
+        // Level 3 — pending FOF's friends
         if(pending[ff.username]){
           const fofFofs=(getSocial(ff.username)||[]).filter(fff=>
             !allFriends.some(m=>m.username===fff.username)&&
             !ns.find(n=>n.id===fff.username)
           ).slice(0,2);
+          const R3=R2+70;
           fofFofs.forEach((fff,k)=>{
-            const a3=fofAngle+(k===0?-0.4:0.4);
-            const R3=R2+90;
+            const a3=fofAngle+(k===0?-0.3:0.3);
             if(!ns.find(n=>n.id===fff.username)){
-              const p3=assignPos(fff.username,R3*Math.cos(a3),R3*Math.sin(a3));
-              ns.push({id:fff.username,label:fff.display_name,color:fff.color,level:fff.level,r:14,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
+              const p3={x:R3*Math.cos(a3),y:R3*Math.sin(a3)};
+              ns.push({id:fff.username,label:fff.display_name,color:fff.color,level:fff.level,r:13,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
               es.push({from:ff.username,to:fff.username,strength:'vweak'});
             }
           });
@@ -2836,15 +2840,46 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
       </div>
     </div>}
 
-    {/* Legend */}
-    <div style={{display:'flex',gap:14,padding:'0 18px 6px',flexShrink:0}}>
-      {[{c:C.accent,l:'You'},{c:'oklch(58% 0.16 270)',l:'Friends'},{c:`${C.muted}88`,l:'Connect'},{c:`${C.muted}44`,l:'Explore'}].map((item,i)=>(
-        <div key={i} style={{display:'flex',gap:4,alignItems:'center'}}>
-          <div style={{width:8,height:8,borderRadius:'50%',background:item.c}}/>
-          <span style={{color:C.muted,fontSize:10,fontWeight:600}}>{item.l}</span>
-        </div>
-      ))}
+    {/* Legend + Friends Toggle */}
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0 18px 6px',flexShrink:0}}>
+      <div style={{display:'flex',gap:14}}>
+        {[{c:C.accent,l:'You'},{c:'oklch(58% 0.16 270)',l:'Friends'},{c:`${C.muted}88`,l:'Connect'}].map((item,i)=>(
+          <div key={i} style={{display:'flex',gap:4,alignItems:'center'}}>
+            <div style={{width:8,height:8,borderRadius:'50%',background:item.c}}/>
+            <span style={{color:C.muted,fontSize:10,fontWeight:600}}>{item.l}</span>
+          </div>
+        ))}
+      </div>
+      {friends.length>0&&<button onClick={()=>setShowFriendList(!showFriendList)} style={{background:showFriendList?C.accentL:C.surface,border:`1px solid ${showFriendList?C.accent:C.border}`,borderRadius:8,padding:'4px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:'inherit'}}>
+        <span style={{fontSize:11,fontWeight:600,color:showFriendList?C.accent:C.muted}}>{primaryFriends.size}/{MAX_PRIMARY_FRIENDS}</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={showFriendList?C.accent:C.muted} strokeWidth="2.5"><path d={showFriendList?"M18 15l-6-6-6 6":"M6 9l6 6 6-6"}/></svg>
+      </button>}
     </div>
+
+    {/* Primary Friends List */}
+    {showFriendList&&friends.length>0&&<div style={{padding:'0 18px 8px',flexShrink:0}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'8px',maxHeight:160,overflowY:'auto'}}>
+        <p style={{color:C.muted,fontSize:10,fontWeight:700,marginBottom:6,padding:'0 4px'}}>SHOW ON GRAPH (max {MAX_PRIMARY_FRIENDS})</p>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+          {friends.map(f=>{
+            const isOn=primaryFriends.has(f.username);
+            const canToggleOn=isOn||primaryFriends.size<MAX_PRIMARY_FRIENDS;
+            return <button key={f.username} onClick={()=>canToggleOn&&togglePrimary(f.username)}
+              style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',background:isOn?C.accentL:'transparent',border:`1px solid ${isOn?C.accent:'transparent'}`,borderRadius:8,cursor:canToggleOn?'pointer':'not-allowed',opacity:canToggleOn?1:0.5,fontFamily:'inherit',textAlign:'left'}}>
+              <div style={{width:24,height:24,borderRadius:'50%',background:f.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'#fff',flexShrink:0}}>
+                {f.display_name?.split(' ').map(w=>w[0]).join('').slice(0,2)}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <p style={{color:C.text,fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.display_name}</p>
+              </div>
+              <div style={{width:20,height:20,borderRadius:6,background:isOn?C.accent:C.border,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                {isOn&&<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
+              </div>
+            </button>;
+          })}
+        </div>
+      </div>
+    </div>}
 
     {/* Canvas */}
     <div ref={containerRef} style={{flex:1,overflow:'hidden',position:'relative',cursor:pointerRef.current?'grabbing':'grab',touchAction:'none'}}
@@ -2860,13 +2895,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           </filter>
         </defs>
         <g transform={`translate(${tf.x},${tf.y}) scale(${tf.scale})`}>
-          {/* Edges — curved to avoid intersecting nodes and other edges */}
+          {/* Edges — straight lines for geometric look */}
           {edgePaths.map((ep,i)=>{
             const sw=ep.strength==='strong'?2:1;
             const op=ep.strength==='strong'?0.5:ep.strength==='weak'?0.25:0.12;
             const sc=ep.strength==='strong'?C.accent:C.muted;
             const sd=ep.strength==='weak'?'6 4':ep.strength==='vweak'?'3 5':undefined;
-            return <path key={i} d={ep.path} stroke={sc} strokeWidth={sw} strokeDasharray={sd} opacity={op} fill="none"/>;
+            return <line key={i} x1={ep.x1} y1={ep.y1} x2={ep.x2} y2={ep.y2} stroke={sc} strokeWidth={sw} strokeDasharray={sd} opacity={op}/>;
           })}
           {/* Nodes */}
           {nodes.map(n=>{
