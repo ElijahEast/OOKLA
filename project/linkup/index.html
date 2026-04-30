@@ -2626,19 +2626,19 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     }
 
     // Geometric layout: evenly space friends in a circle
+    // Always recalculate positions for root friends to ensure even spacing
     const count=visibleFriends.length||1;
     const R1=Math.max(100,Math.min(140,80+count*15)); // Radius scales with count
 
     visibleFriends.forEach((f,i)=>{
-      // Even angular spacing, starting from top
+      // Even angular spacing, starting from top - always fresh calculation
       const angle=(2*Math.PI*i/count)-(Math.PI/2);
       const x=R1*Math.cos(angle);
       const y=R1*Math.sin(angle);
-      // Use cached position or assign new one
-      const pos=posRef.current[f.username]||{x,y};
-      if(!posRef.current[f.username]) posRef.current[f.username]=pos;
+      // Always update position for root friends to maintain even spacing
+      posRef.current[f.username]={x,y};
 
-      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:22,x:pos.x,y:pos.y,kind:'friend',data:f,angle});
+      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:22,x,y,kind:'friend',data:f,angle});
       es.push({from:'__me',to:f.username,strength:'strong'});
     });
 
