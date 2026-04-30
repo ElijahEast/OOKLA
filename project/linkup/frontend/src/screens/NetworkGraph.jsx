@@ -11,8 +11,18 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
   const [pending, setPending] = useState({});
   const [multiMode, setMultiMode] = useState(false);
   const [multiSel, setMultiSel] = useState(new Set());
-  const posRef = useRef({ '__me': { x: 0, y: 0 } });
-  const friendParentRef = useRef({});
+
+  // Persist positions and parent links in localStorage so they survive tab switches
+  const posRef = useRef(null);
+  if (!posRef.current) {
+    try { posRef.current = JSON.parse(localStorage.getItem('lu_graph_pos') || '{"__me":{"x":0,"y":0}}'); }
+    catch { posRef.current = { '__me': { x: 0, y: 0 } }; }
+  }
+  const friendParentRef = useRef(null);
+  if (!friendParentRef.current) {
+    try { friendParentRef.current = JSON.parse(localStorage.getItem('lu_graph_parents') || '{}'); }
+    catch { friendParentRef.current = {}; }
+  }
 
   useEffect(() => {
     setGraphFriends(prev => {
@@ -23,8 +33,16 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
   }, [friends]);
 
   function assignPos(username, x, y) {
-    if (!posRef.current[username]) posRef.current[username] = { x, y };
+    if (!posRef.current[username]) {
+      posRef.current[username] = { x, y };
+      try { localStorage.setItem('lu_graph_pos', JSON.stringify(posRef.current)); } catch {}
+    }
     return posRef.current[username];
+  }
+
+  function setParent(username, parent) {
+    friendParentRef.current[username] = parent;
+    try { localStorage.setItem('lu_graph_parents', JSON.stringify(friendParentRef.current)); } catch {}
   }
 
   function buildGraph() {
@@ -179,7 +197,7 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
     setSelected(null);
     const fofNode = nodes.find(n => n.id === nodeData.username);
     if (fofNode && fofNode.parent) {
-      friendParentRef.current[nodeData.username] = fofNode.parent;
+      setParent(nodeData.username, fofNode.parent);
     }
     setTimeout(() => {
       setGraphFriends(prev => [...prev, { ...nodeData, distance_m: 600 }]);
