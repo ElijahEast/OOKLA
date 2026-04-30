@@ -2210,6 +2210,20 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     });
   },[friends]);
 
+  // Restore posRef and friendParentRef from persisted friend data on mount/update
+  useEffect(()=>{
+    friends.forEach(f=>{
+      // Restore cached position from persisted graphPos
+      if(f.graphPos&&!posRef.current[f.username]){
+        posRef.current[f.username]={x:f.graphPos.x,y:f.graphPos.y};
+      }
+      // Restore parent reference from persisted parent
+      if(f.parent&&!friendParentRef.current[f.username]){
+        friendParentRef.current[f.username]=f.parent;
+      }
+    });
+  },[friends]);
+
   // ── Build nodes & edges ─ deterministic layout with persistent position cache
   const {nodes,edges}=buildGraph();
   function assignPos(username,x,y){
@@ -2223,8 +2237,9 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
 
     const allFriends=graphFriends.filter(f=>!blockedUsers.some(b=>b.username===f.username));
     // Split: "root" friends (in inner ring) vs friends-added-from-graph (stay near their parent)
-    const rootFriends=allFriends.filter(f=>!friendParentRef.current[f.username]);
-    const derivedFriends=allFriends.filter(f=>friendParentRef.current[f.username]);
+    // Use f.parent (persisted) with friendParentRef as fallback for current session
+    const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current[f.username]);
+    const derivedFriends=allFriends.filter(f=>f.parent||friendParentRef.current[f.username]);
     const count=rootFriends.length||1;
     const R1=Math.max(110, count*28);
 
@@ -2237,10 +2252,14 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
 
     // Derived friends keep their cached position and connect to their parent
     derivedFriends.forEach(f=>{
-      const pos=posRef.current[f.username];
+      // Use f.graphPos (persisted) with posRef as fallback
+      const pos=f.graphPos||posRef.current[f.username];
       if(!pos) return; // shouldn't happen — they were added from graph so their pos was cached
+      // Ensure posRef is updated for current session
+      if(!posRef.current[f.username]) posRef.current[f.username]={x:pos.x,y:pos.y};
       ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:20,x:pos.x,y:pos.y,kind:'friend',data:f});
-      const parent=friendParentRef.current[f.username];
+      // Use f.parent (persisted) with friendParentRef as fallback
+      const parent=f.parent||friendParentRef.current[f.username];
       es.push({from:parent,to:f.username,strength:'strong'});
     });
 
@@ -2378,13 +2397,23 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     setSelected(null);
     // Find the FOF's parent so the new friend remains rooted in that sub-tree
     const fofNode=nodes.find(n=>n.id===nodeData.username);
-    if(fofNode&&fofNode.parent){
-      friendParentRef.current[nodeData.username]=fofNode.parent;
+    const parentUsername=fofNode?.parent||null;
+    const cachedPos=posRef.current[nodeData.username]||null;
+    // Store in ref as fallback for current session
+    if(parentUsername){
+      friendParentRef.current[nodeData.username]=parentUsername;
     }
     // Add to graphFriends after short delay (simulates request accepted)
+    // Include parent and graphPos on the object so they persist to localStorage
     setTimeout(()=>{
-      setGraphFriends(prev=>[...prev,{...nodeData,distance_m:600}]);
-      onAddFriend&&onAddFriend(nodeData);
+      const enrichedFriend={
+        ...nodeData,
+        distance_m:600,
+        parent:parentUsername,
+        graphPos:cachedPos?{x:cachedPos.x,y:cachedPos.y}:null
+      };
+      setGraphFriends(prev=>[...prev,enrichedFriend]);
+      onAddFriend&&onAddFriend(enrichedFriend);
     },800);
   }
 
@@ -2697,7 +2726,19 @@ function App(){
 
   function handleAddFriend(target){
     setTimeout(()=>{
-      setFriends(prev=>{if(prev.some(f=>f.username===target.username))return prev;const u=[...prev,{...target,distance_m:target.distance_m||950}];persist({friends:u});return u;});
+      setFriends(prev=>{
+        if(prev.some(f=>f.username===target.username)) return prev;
+        // Preserve parent and graphPos for graph-added friends (FOF)
+        const newFriend={
+          ...target,
+          distance_m:target.distance_m||950,
+          parent:target.parent||null,
+          graphPos:target.graphPos||null
+        };
+        const u=[...prev,newFriend];
+        persist({friends:u});
+        return u;
+      });
       awardXP(10);
     },700);
   }
