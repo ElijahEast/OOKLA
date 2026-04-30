@@ -46,26 +46,23 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
   const [multiMode, setMultiMode] = useState(false);
   const [multiSel, setMultiSel] = useState(new Set());
 
-  // Persist positions and parent links in localStorage so they survive tab switches
   const posRef = useRef(null);
   if (!posRef.current) {
     try { posRef.current = JSON.parse(localStorage.getItem('lu_graph_pos') || '{"__me":{"x":0,"y":0}}'); }
     catch { posRef.current = { '__me': { x: 0, y: 0 } }; }
-  }
-  const friendParentRef = useRef(null);
-  if (!friendParentRef.current) {
-    try { friendParentRef.current = JSON.parse(localStorage.getItem('lu_graph_parents') || '{}'); }
-    catch { friendParentRef.current = {}; }
   }
 
   useEffect(() => {
     try { localStorage.setItem('lu_graph_tf', JSON.stringify(tf)); } catch {}
   }, [tf]);
 
+  // Merge new friends from App state, preserving _parent on existing entries
   useEffect(() => {
     setGraphFriends(prev => {
-      const merged = [...friends];
-      prev.forEach(p => { if (!merged.find(m => m.username === p.username)) merged.push(p); });
+      const merged = [...prev];
+      friends.forEach(f => {
+        if (!merged.find(m => m.username === f.username)) merged.push(f);
+      });
       try { localStorage.setItem('lu_graph_friends', JSON.stringify(merged)); } catch {}
       return merged;
     });
@@ -79,19 +76,14 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     return posRef.current[username];
   }
 
-  function setParent(username, parent) {
-    friendParentRef.current[username] = parent;
-    try { localStorage.setItem('lu_graph_parents', JSON.stringify(friendParentRef.current)); } catch {}
-  }
-
   function buildGraph() {
     try {
     const ns = [], es = [];
     ns.push({ id: '__me', label: user.display_name || user.displayName || 'You', color: C.accent, level: levelFromXp(0), r: 30, x: 0, y: 0, kind: 'me' });
 
     const allFriends = graphFriends.filter(f => !blockedUsers.some(b => b.username === f.username));
-    const rootFriends = allFriends.filter(f => !friendParentRef.current[f.username]);
-    const derivedFriends = allFriends.filter(f => friendParentRef.current[f.username]);
+    const rootFriends = allFriends.filter(f => !f._parent);
+    const derivedFriends = allFriends.filter(f => !!f._parent);
     const count = rootFriends.length || 1;
     const R1 = Math.max(110, count * 28);
 
@@ -103,11 +95,12 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     });
 
     derivedFriends.forEach(f => {
-      const pos = posRef.current[f.username];
-      if (!pos) return;
+      const parentNode = ns.find(n => n.id === f._parent);
+      const defaultX = parentNode ? parentNode.x + 80 : 0;
+      const defaultY = parentNode ? parentNode.y + 80 : 0;
+      const pos = assignPos(f.username, defaultX, defaultY);
       ns.push({ id: f.username, label: f.display_name || f.username || '?', color: f.color, level: f.level, r: 20, x: pos.x, y: pos.y, kind: 'friend', data: f });
-      const parent = friendParentRef.current[f.username];
-      es.push({ from: parent, to: f.username, strength: 'strong' });
+      es.push({ from: f._parent, to: f.username, strength: 'strong' });
     });
 
     ns.filter(n => n.kind === 'friend').forEach(fn => {
@@ -240,12 +233,10 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     setPending(p => ({ ...p, [nodeData.username]: true }));
     setSelected(null);
     const fofNode = nodes.find(n => n.id === nodeData.username);
-    if (fofNode && fofNode.parent) {
-      setParent(nodeData.username, fofNode.parent);
-    }
+    const parentUsername = fofNode?.parent || null;
     setTimeout(() => {
       setGraphFriends(prev => {
-        const next = [...prev, { ...nodeData, distance_m: 600 }];
+        const next = [...prev, { ...nodeData, distance_m: 600, _parent: parentUsername }];
         try { localStorage.setItem('lu_graph_friends', JSON.stringify(next)); } catch {}
         return next;
       });
