@@ -2590,10 +2590,12 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   }
   function buildGraph(){
     const ns=[], es=[];
-    // Center
-    ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
-
     const allFriends=graphFriends.filter(f=>!blockedUsers.some(b=>b.username===f.username));
+
+    // Only show center "You" node if there are friends
+    if(allFriends.length>0){
+      ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
+    }
     // Split: "root" friends (in inner ring) vs friends-added-from-graph (stay near their parent)
     // Use f.parent (persisted) with friendParentRef as fallback for current session
     const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current[f.username]);
