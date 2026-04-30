@@ -2256,68 +2256,80 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     try{
     const ns=[], es=[];
     // Center
-    ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
+    ns.push({id:'__me',label:user?.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
 
-    const allFriends=graphFriends.filter(f=>!blockedUsers.some(b=>b.username===f.username));
+    // Filter out any malformed friend objects
+    const validFriends=(graphFriends||[]).filter(f=>f&&typeof f.username==='string');
+    const validBlocked=(blockedUsers||[]).filter(b=>b&&typeof b.username==='string');
+    const allFriends=validFriends.filter(f=>!validBlocked.some(b=>b.username===f.username));
+
     // Split: "root" friends (in inner ring) vs friends-added-from-graph (stay near their parent)
-    // Use f.parent (persisted) with friendParentRef as fallback for current session
-    const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current[f.username]);
-    const derivedFriends=allFriends.filter(f=>f.parent||friendParentRef.current[f.username]);
+    const rootFriends=allFriends.filter(f=>!f.parent&&!friendParentRef.current?.[f.username]);
+    const derivedFriends=allFriends.filter(f=>f.parent||friendParentRef.current?.[f.username]);
     const count=rootFriends.length||1;
     const R1=Math.max(110, count*28);
 
     rootFriends.forEach((f,i)=>{
+      if(!f.username) return;
       const angle=(2*Math.PI*i/count)-(Math.PI/2);
       const pos=assignPos(f.username,R1*Math.cos(angle),R1*Math.sin(angle));
-      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:22,x:pos.x,y:pos.y,kind:'friend',data:f,angle});
+      ns.push({id:f.username,label:f.display_name||f.username,color:f.color||C.muted,level:f.level||1,r:22,x:pos.x,y:pos.y,kind:'friend',data:f,angle});
       es.push({from:'__me',to:f.username,strength:'strong'});
     });
 
     // Derived friends keep their cached position and connect to their parent
     derivedFriends.forEach(f=>{
+      if(!f.username) return;
       // Use f.graphPos (persisted) with posRef as fallback
-      const pos=f.graphPos||posRef.current[f.username];
-      if(!pos) return; // shouldn't happen — they were added from graph so their pos was cached
+      const pos=f.graphPos||posRef.current?.[f.username];
+      if(!pos||!Number.isFinite(pos.x)||!Number.isFinite(pos.y)) return;
       // Ensure posRef is updated for current session
       if(!posRef.current[f.username]) posRef.current[f.username]={x:pos.x,y:pos.y};
-      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:20,x:pos.x,y:pos.y,kind:'friend',data:f});
+      ns.push({id:f.username,label:f.display_name||f.username,color:f.color||C.muted,level:f.level||1,r:20,x:pos.x,y:pos.y,kind:'friend',data:f});
       // Use f.parent (persisted) with friendParentRef as fallback
-      const parent=f.parent||friendParentRef.current[f.username];
-      es.push({from:parent,to:f.username,strength:'strong'});
+      const parent=f.parent||friendParentRef.current?.[f.username];
+      if(parent) es.push({from:parent,to:f.username,strength:'strong'});
     });
 
     // FOFs — radiate out from each friend node (both root + derived)
     ns.filter(n=>n.kind==='friend').forEach(fn=>{
       const f=fn.data;
+      if(!f||!f.username) return;
       // Compute outward angle from parent (or from origin for root)
-      const baseAngle=Math.atan2(fn.y,fn.x); // angle from center to this friend
+      const fnX=Number.isFinite(fn.x)?fn.x:0;
+      const fnY=Number.isFinite(fn.y)?fn.y:0;
+      const baseAngle=Math.atan2(fnY,fnX);
       const fofs=(getSocial(f.username)||[]).filter(ff=>
+        ff&&ff.username&&
         !allFriends.some(m=>m.username===ff.username)&&
-        !blockedUsers.some(b=>b.username===ff.username)
+        !validBlocked.some(b=>b.username===ff.username)
       ).slice(0,3);
 
       fofs.forEach((ff,j)=>{
+        if(!ff.username) return;
         // skip if already placed as node (could be another friend's FOF)
         if(ns.find(n=>n.id===ff.username)) return;
         const spread=fofs.length===1?0:0.55;
         const fofAngle=baseAngle+(j-(fofs.length-1)/2)*spread;
-        const R2=Math.hypot(fn.x,fn.y)+110;
+        const R2=Math.hypot(fnX,fnY)+110;
         const pos=assignPos(ff.username,R2*Math.cos(fofAngle),R2*Math.sin(fofAngle));
-        ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:18,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
+        ns.push({id:ff.username,label:ff.display_name||ff.username,color:ff.color||C.muted,level:ff.level||1,r:18,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
         es.push({from:f.username,to:ff.username,strength:'weak'});
 
         // Level 3 — if pending (just added) show their FOFs too
         if(pending[ff.username]){
           const fofFofs=(getSocial(ff.username)||[]).filter(fff=>
+            fff&&fff.username&&
             !allFriends.some(m=>m.username===fff.username)&&
             !ns.find(n=>n.id===fff.username)
           ).slice(0,2);
           fofFofs.forEach((fff,k)=>{
+            if(!fff.username) return;
             const a3=fofAngle+(k===0?-0.4:0.4);
             const R3=R2+90;
             if(!ns.find(n=>n.id===fff.username)){
               const p3=assignPos(fff.username,R3*Math.cos(a3),R3*Math.sin(a3));
-              ns.push({id:fff.username,label:fff.display_name,color:fff.color,level:fff.level,r:14,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
+              ns.push({id:fff.username,label:fff.display_name||fff.username,color:fff.color||C.muted,level:fff.level||1,r:14,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
               es.push({from:ff.username,to:fff.username,strength:'vweak'});
             }
           });
@@ -2531,11 +2543,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
             <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
           </filter>
         </defs>
-        <g transform={`translate(${tf.x},${tf.y}) scale(${tf.scale})`}>
+        <g transform={`translate(${Number.isFinite(tf.x)?tf.x:195},${Number.isFinite(tf.y)?tf.y:310}) scale(${Number.isFinite(tf.scale)&&tf.scale>0?tf.scale:1})`}>
           {/* Edges */}
           {edges.map((e,i)=>{
             const f=nodes.find(n=>n.id===e.from),t=nodes.find(n=>n.id===e.to);
             if(!f||!t) return null;
+            // Validate coordinates
+            if(!Number.isFinite(f.x)||!Number.isFinite(f.y)||!Number.isFinite(t.x)||!Number.isFinite(t.y)) return null;
             const sw=e.strength==='strong'?2:1;
             const op=e.strength==='strong'?0.5:e.strength==='weak'?0.25:0.12;
             const sc=e.strength==='strong'?C.accent:C.muted;
@@ -2544,6 +2558,8 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           })}
           {/* Nodes */}
           {nodes.map(n=>{
+            // Skip nodes with invalid coordinates
+            if(!Number.isFinite(n.x)||!Number.isFinite(n.y)||!Number.isFinite(n.r)) return null;
             const isSel=selected===n.id;
             const isFriendNode=n.kind==='friend';
             const isPend=pending[n.id];
