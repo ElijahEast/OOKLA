@@ -2643,6 +2643,7 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     });
 
     // FOFs — radiate straight outward from each friend
+    // Always recalculate positions based on parent's current position
     ns.filter(n=>n.kind==='friend').forEach(fn=>{
       const f=fn.data;
       const baseAngle=Math.atan2(fn.y,fn.x);
@@ -2659,13 +2660,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
         const fofAngle=baseAngle+spreadAngle;
         const x=R2*Math.cos(fofAngle);
         const y=R2*Math.sin(fofAngle);
-        const pos=posRef.current[ff.username]||{x,y};
-        if(!posRef.current[ff.username]) posRef.current[ff.username]=pos;
+        // Always use fresh position based on parent's current location
+        posRef.current[ff.username]={x,y};
 
-        ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:16,x:pos.x,y:pos.y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
+        ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:16,x,y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
         es.push({from:f.username,to:ff.username,strength:'weak'});
 
-        // Level 3 — pending FOF's friends
+        // Level 3 — pending FOF's friends (also recalculate based on FOF position)
         if(pending[ff.username]){
           const fofFofs=(getSocial(ff.username)||[]).filter(fff=>
             !allFriends.some(m=>m.username===fff.username)&&
@@ -2675,8 +2676,10 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           fofFofs.forEach((fff,k)=>{
             const a3=fofAngle+(k===0?-0.3:0.3);
             if(!ns.find(n=>n.id===fff.username)){
-              const p3={x:R3*Math.cos(a3),y:R3*Math.sin(a3)};
-              ns.push({id:fff.username,label:fff.display_name,color:fff.color,level:fff.level,r:13,x:p3.x,y:p3.y,kind:'fof2',data:fff,parent:ff.username});
+              const x3=R3*Math.cos(a3);
+              const y3=R3*Math.sin(a3);
+              posRef.current[fff.username]={x:x3,y:y3};
+              ns.push({id:fff.username,label:fff.display_name,color:fff.color,level:fff.level,r:13,x:x3,y:y3,kind:'fof2',data:fff,parent:ff.username});
               es.push({from:ff.username,to:fff.username,strength:'vweak'});
             }
           });
