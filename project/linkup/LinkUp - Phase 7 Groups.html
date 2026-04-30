@@ -2484,8 +2484,161 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     });
   },[friends]);
 
+  // ── Collision detection helpers ─────────────────────────────────────────────
+  function nodesOverlap(n1,n2,padding=8){
+    const dx=n1.x-n2.x, dy=n1.y-n2.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    return dist<(n1.r+n2.r+padding);
+  }
+
+  function lineIntersectsCircle(x1,y1,x2,y2,cx,cy,r,padding=6){
+    // Check if line segment (x1,y1)-(x2,y2) intersects circle at (cx,cy) with radius r
+    const dx=x2-x1, dy=y2-y1;
+    const fx=x1-cx, fy=y1-cy;
+    const a=dx*dx+dy*dy;
+    const b=2*(fx*dx+fy*dy);
+    const c=fx*fx+fy*fy-(r+padding)*(r+padding);
+    let disc=b*b-4*a*c;
+    if(disc<0) return false;
+    disc=Math.sqrt(disc);
+    const t1=(-b-disc)/(2*a);
+    const t2=(-b+disc)/(2*a);
+    return (t1>=0&&t1<=1)||(t2>=0&&t2<=1);
+  }
+
+  function linesIntersect(x1,y1,x2,y2,x3,y3,x4,y4){
+    // Check if line segment (x1,y1)-(x2,y2) intersects (x3,y3)-(x4,y4)
+    const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+    if(Math.abs(d)<0.0001) return false;
+    const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;
+    const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/d;
+    return t>0.05&&t<0.95&&u>0.05&&u<0.95; // Exclude endpoints
+  }
+
+  // Push overlapping nodes apart
+  function resolveNodeCollisions(nodeList,iterations=15){
+    const nodes=[...nodeList];
+    for(let iter=0;iter<iterations;iter++){
+      let moved=false;
+      for(let i=0;i<nodes.length;i++){
+        for(let j=i+1;j<nodes.length;j++){
+          const n1=nodes[i], n2=nodes[j];
+          if(n1.id==='__me'||n2.id==='__me') continue; // Don't move center node
+          const dx=n2.x-n1.x, dy=n2.y-n1.y;
+          const dist=Math.sqrt(dx*dx+dy*dy)||0.1;
+          const minDist=n1.r+n2.r+12;
+          if(dist<minDist){
+            const overlap=(minDist-dist)/2;
+            const ux=dx/dist, uy=dy/dist;
+            // Push both nodes apart (unless one is 'me')
+            n1.x-=ux*overlap*0.6;
+            n1.y-=uy*overlap*0.6;
+            n2.x+=ux*overlap*0.6;
+            n2.y+=uy*overlap*0.6;
+            moved=true;
+          }
+        }
+      }
+      if(!moved) break;
+    }
+    // Update posRef with resolved positions
+    nodes.forEach(n=>{
+      if(n.id!=='__me') posRef.current[n.id]={x:n.x,y:n.y};
+    });
+    return nodes;
+  }
+
+  // Find nodes that an edge passes through (excluding endpoints)
+  function findBlockingNodes(edge,allNodes){
+    const fromNode=allNodes.find(n=>n.id===edge.from);
+    const toNode=allNodes.find(n=>n.id===edge.to);
+    if(!fromNode||!toNode) return [];
+    return allNodes.filter(n=>
+      n.id!==edge.from&&n.id!==edge.to&&
+      lineIntersectsCircle(fromNode.x,fromNode.y,toNode.x,toNode.y,n.x,n.y,n.r)
+    );
+  }
+
+  // Calculate curved path to avoid blocking nodes
+  function getCurvedPath(fromNode,toNode,blockingNodes,curveAmount=0){
+    const needsCurve=blockingNodes.length>0||curveAmount!==0;
+    if(!needsCurve){
+      return `M${fromNode.x},${fromNode.y}L${toNode.x},${toNode.y}`;
+    }
+    // Calculate midpoint and offset perpendicular to the line
+    const mx=(fromNode.x+toNode.x)/2;
+    const my=(fromNode.y+toNode.y)/2;
+    const dx=toNode.x-fromNode.x;
+    const dy=toNode.y-fromNode.y;
+    const len=Math.sqrt(dx*dx+dy*dy)||1;
+    // Perpendicular direction
+    const px=-dy/len, py=dx/len;
+    // Determine which side to curve (away from blocking nodes)
+    let side=curveAmount;
+    blockingNodes.forEach(bn=>{
+      const cross=(bn.x-fromNode.x)*py-(bn.y-fromNode.y)*px;
+      side+=cross>0?1:-1;
+    });
+    const curveDir=side>=0?-1:1;
+    const baseCurve=Math.abs(curveAmount)*20;
+    const curveDist=Math.min(80,len*0.3+blockingNodes.length*15+baseCurve);
+    const cx=mx+px*curveDir*curveDist;
+    const cy=my+py*curveDir*curveDist;
+    return `M${fromNode.x},${fromNode.y}Q${cx},${cy} ${toNode.x},${toNode.y}`;
+  }
+
+  // Pre-compute edge paths with collision avoidance
+  function computeEdgePaths(edgeList,nodeList){
+    const paths=[];
+    const edgeData=edgeList.map(e=>{
+      const f=nodeList.find(n=>n.id===e.from);
+      const t=nodeList.find(n=>n.id===e.to);
+      return{...e,fromNode:f,toNode:t,curveAmount:0};
+    }).filter(ed=>ed.fromNode&&ed.toNode);
+
+    // First pass: curve edges that pass through nodes
+    edgeData.forEach(ed=>{
+      ed.blockingNodes=findBlockingNodes(ed,nodeList);
+    });
+
+    // Second pass: detect edge-edge intersections and add curve
+    for(let i=0;i<edgeData.length;i++){
+      for(let j=i+1;j<edgeData.length;j++){
+        const e1=edgeData[i], e2=edgeData[j];
+        // Skip if edges share an endpoint
+        if(e1.from===e2.from||e1.from===e2.to||e1.to===e2.from||e1.to===e2.to) continue;
+        // Check if the straight lines would intersect
+        if(linesIntersect(
+          e1.fromNode.x,e1.fromNode.y,e1.toNode.x,e1.toNode.y,
+          e2.fromNode.x,e2.fromNode.y,e2.toNode.x,e2.toNode.y
+        )){
+          // Curve the shorter edge (or the weaker one)
+          const len1=Math.hypot(e1.toNode.x-e1.fromNode.x,e1.toNode.y-e1.fromNode.y);
+          const len2=Math.hypot(e2.toNode.x-e2.fromNode.x,e2.toNode.y-e2.fromNode.y);
+          if(len1<len2||e1.strength==='vweak'){
+            e1.curveAmount=(e1.curveAmount||0)+1;
+          }else{
+            e2.curveAmount=(e2.curveAmount||0)-1;
+          }
+        }
+      }
+    }
+
+    // Generate final paths
+    edgeData.forEach(ed=>{
+      ed.path=getCurvedPath(ed.fromNode,ed.toNode,ed.blockingNodes,ed.curveAmount);
+    });
+
+    return edgeData;
+  }
+
   // ── Build nodes & edges ─ deterministic layout with persistent position cache
-  const {nodes,edges}=buildGraph();
+  const {nodes:rawNodes,edges}=buildGraph();
+  // Resolve collisions before rendering
+  const nodes=resolveNodeCollisions(rawNodes);
+  // Compute all edge paths with collision avoidance
+  const edgePaths=computeEdgePaths(edges,nodes);
+
   function assignPos(username,x,y){
     if(!posRef.current[username]) posRef.current[username]={x,y};
     return posRef.current[username];
@@ -2760,15 +2913,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           </filter>
         </defs>
         <g transform={`translate(${tf.x},${tf.y}) scale(${tf.scale})`}>
-          {/* Edges */}
-          {edges.map((e,i)=>{
-            const f=nodes.find(n=>n.id===e.from),t=nodes.find(n=>n.id===e.to);
-            if(!f||!t) return null;
-            const sw=e.strength==='strong'?2:1;
-            const op=e.strength==='strong'?0.5:e.strength==='weak'?0.25:0.12;
-            const sc=e.strength==='strong'?C.accent:C.muted;
-            const sd=e.strength==='weak'?'6 4':e.strength==='vweak'?'3 5':undefined;
-            return <line key={i} x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke={sc} strokeWidth={sw} strokeDasharray={sd} opacity={op}/>;
+          {/* Edges — curved to avoid intersecting nodes and other edges */}
+          {edgePaths.map((ep,i)=>{
+            const sw=ep.strength==='strong'?2:1;
+            const op=ep.strength==='strong'?0.5:ep.strength==='weak'?0.25:0.12;
+            const sc=ep.strength==='strong'?C.accent:C.muted;
+            const sd=ep.strength==='weak'?'6 4':ep.strength==='vweak'?'3 5':undefined;
+            return <path key={i} d={ep.path} stroke={sc} strokeWidth={sw} strokeDasharray={sd} opacity={op} fill="none"/>;
           })}
           {/* Nodes */}
           {nodes.map(n=>{
