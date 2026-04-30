@@ -61,6 +61,78 @@ function timeAgo(ms){
   return `${Math.floor(s/86400)}d ago`;
 }
 
+// ── API Service ───────────────────────────────────────────────────────────────
+const API_URL = 'https://ookla-production.up.railway.app';
+
+function getToken(){ return localStorage.getItem('lu_token'); }
+function getRefreshToken(){ return localStorage.getItem('lu_refresh_token'); }
+function setTokens(access, refresh){
+  localStorage.setItem('lu_token', access);
+  if(refresh) localStorage.setItem('lu_refresh_token', refresh);
+}
+function clearTokens(){
+  localStorage.removeItem('lu_token');
+  localStorage.removeItem('lu_refresh_token');
+}
+
+async function apiCall(endpoint, options = {}){
+  const token = getToken();
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if(token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+
+  // Handle token expiration
+  if(res.status === 401 && data.code === 'TOKEN_EXPIRED'){
+    const refreshed = await refreshToken();
+    if(refreshed){
+      headers['Authorization'] = `Bearer ${getToken()}`;
+      const retry = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+      return retry.json().catch(() => ({}));
+    }
+  }
+
+  if(!res.ok) throw { status: res.status, ...data };
+  return data;
+}
+
+async function refreshToken(){
+  const refresh = getRefreshToken();
+  if(!refresh) return false;
+  try {
+    const res = await fetch(`${API_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: refresh })
+    });
+    if(!res.ok){ clearTokens(); return false; }
+    const data = await res.json();
+    setTokens(data.accessToken, data.refreshToken);
+    return true;
+  } catch { clearTokens(); return false; }
+}
+
+const authAPI = {
+  signup: (email, username, password) =>
+    fetch(`${API_URL}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, username, password })
+    }).then(r => r.json()),
+
+  login: (identifier, password) =>
+    fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password })
+    }).then(r => r.json()),
+
+  logout: () => apiCall('/api/auth/logout', { method: 'POST' }),
+
+  getMe: () => apiCall('/api/auth/me'),
+};
+
 // ── Mock data ─────────────────────────────────────────────────────────────────
 const ALL_USERS = [
   {id:1,username:'alex_m',   display_name:'Alex M.',   distance_m:180,  level:7,  xp:340,  bio:'Coffee addict. Always down for spontaneous meetups.',color:'oklch(58% 0.16 190)',total_meetups:8, current_streak:2},
@@ -174,6 +246,137 @@ class GraphErrorBoundary extends React.Component {
     }
     return this.props.children;
   }
+}
+
+// ── Auth Screens ──────────────────────────────────────────────────────────────
+function AuthField({label,icon,type='text',value,onChange,placeholder,suffix,error}){
+  return <div style={{marginBottom:16}}>
+    <label style={{display:'block',color:C.muted,fontSize:12,fontWeight:600,marginBottom:6,letterSpacing:'0.03em'}}>{label}</label>
+    <div style={{display:'flex',alignItems:'center',background:C.surface,border:`1.5px solid ${error?C.error:C.border}`,borderRadius:14,padding:'0 14px',height:52}}>
+      <Icon name={icon} size={18} color={C.muted}/>
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{flex:1,background:'none',border:'none',outline:'none',color:C.text,fontSize:15,fontFamily:'inherit',padding:'0 12px',height:'100%'}}/>
+      {suffix}
+    </div>
+    {error&&<p style={{color:C.error,fontSize:11,marginTop:4}}>{error}</p>}
+  </div>;
+}
+
+function SplashScreen({onNavigate}){
+  return <div style={{height:'100%',display:'flex',flexDirection:'column',padding:'0 28px 48px'}}>
+    <StatusBar/>
+    <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',gap:24}}>
+      <div style={{width:200,height:200,borderRadius:40,background:C.surface,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden'}}>
+        {[...Array(5)].map((_,i)=><div key={i} style={{position:'absolute',left:0,right:0,height:1,background:C.border,top:`${(i+1)*33}px`}}/>)}
+        {[...Array(5)].map((_,i)=><div key={i} style={{position:'absolute',top:0,bottom:0,width:1,background:C.border,left:`${(i+1)*33}px`}}/>)}
+        {[{x:70,y:80,big:true},{x:120,y:120},{x:50,y:140},{x:150,y:70}].map((p,i)=>
+          <div key={i} style={{position:'absolute',left:p.x,top:p.y,transform:'translate(-50%,-50%)'}}>
+            <div style={{width:p.big?32:20,height:p.big?32:20,borderRadius:'50%',background:p.big?C.accent:`oklch(62% 0.22 ${28+i*60}/0.7)`,border:`2px solid ${C.bg}`,boxShadow:`0 2px 8px ${C.accent}55`,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              {p.big&&<div style={{width:8,height:8,borderRadius:'50%',background:'#fff'}}/>}
+            </div>
+          </div>
+        )}
+      </div>
+      <div style={{textAlign:'center'}}>
+        <Wordmark/>
+        <p style={{color:C.muted,fontSize:14,marginTop:12,lineHeight:1.6,maxWidth:240}}>Meet real people nearby. Earn points. Build your world.</p>
+      </div>
+    </div>
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <Btn onClick={()=>onNavigate('signup')}>Get Started</Btn>
+      <Btn variant="ghost" onClick={()=>onNavigate('login')}>I have an account</Btn>
+    </div>
+  </div>;
+}
+
+function SignupScreen({onNavigate,onSuccess}){
+  const[form,setForm]=useState({email:'',username:'',password:''});
+  const[showPw,setShowPw]=useState(false);
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+  const[apiError,setApiError]=useState('');
+  const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+
+  function validate(){
+    const e={};
+    if(!form.email.includes('@'))e.email='Valid email required';
+    if(form.username.length<3)e.username='Username must be 3+ characters';
+    if(form.password.length<8)e.password='Password must be 8+ characters';
+    else if(!/[A-Z]/.test(form.password)||!/[0-9]/.test(form.password))e.password='Must include uppercase & number';
+    return e;
+  }
+
+  async function handleSubmit(){
+    const errs=validate();
+    setErrors(errs);
+    if(Object.keys(errs).length>0)return;
+    setLoading(true);setApiError('');
+    try{
+      const res=await authAPI.signup(form.email,form.username,form.password);
+      if(res.error||res.message){setApiError(res.error||res.message);setLoading(false);return;}
+      setTokens(res.accessToken,res.refreshToken);
+      onSuccess&&onSuccess(res.user);
+    }catch(err){setApiError(err.message||'Signup failed');setLoading(false);}
+  }
+
+  return <div style={{height:'100%',display:'flex',flexDirection:'column'}}>
+    <StatusBar/>
+    <div style={{padding:'20px 28px 0',display:'flex',alignItems:'center',gap:12}}>
+      <button onClick={()=>onNavigate('splash')} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Icon name="back" size={20} color={C.muted}/></button>
+      <Wordmark/>
+    </div>
+    <div style={{flex:1,padding:'28px 28px 0',overflow:'auto'}}>
+      <h1 style={{fontSize:24,fontWeight:800,color:C.text,letterSpacing:'-0.02em',marginBottom:4}}>Create account</h1>
+      <p style={{color:C.muted,fontSize:13,marginBottom:24}}>Join LinkUp and start meeting people nearby.</p>
+      <AuthField label="Email" icon="user" value={form.email} onChange={set('email')} placeholder="you@example.com" error={errors.email}/>
+      <AuthField label="Username" icon="user" value={form.username} onChange={set('username')} placeholder="@yourhandle" error={errors.username}/>
+      <AuthField label="Password" icon="settings" type={showPw?'text':'password'} value={form.password} onChange={set('password')} placeholder="8+ chars, uppercase & number" error={errors.password} suffix={<button onClick={()=>setShowPw(v=>!v)} style={{background:'none',border:'none',cursor:'pointer',padding:4,display:'flex'}}><Icon name={showPw?'x':'search'} size={18} color={C.muted}/></button>}/>
+      {apiError&&<div style={{background:`${C.error}18`,border:`1px solid ${C.error}55`,borderRadius:12,padding:'10px 14px',marginBottom:16}}><p style={{color:C.error,fontSize:13}}>{apiError}</p></div>}
+      <p style={{fontSize:11,color:C.muted,textAlign:'center',lineHeight:1.6}}>By continuing you agree to our Terms & Privacy Policy.</p>
+    </div>
+    <div style={{padding:'16px 28px 40px'}}>
+      <Btn onClick={handleSubmit} loading={loading}>Create Account</Btn>
+      <p style={{textAlign:'center',color:C.muted,fontSize:13,marginTop:14}}>Already have an account? <span onClick={()=>onNavigate('login')} style={{color:C.accent,fontWeight:600,cursor:'pointer'}}>Sign in</span></p>
+    </div>
+  </div>;
+}
+
+function LoginScreen({onNavigate,onSuccess}){
+  const[form,setForm]=useState({identifier:'',password:''});
+  const[showPw,setShowPw]=useState(false);
+  const[error,setError]=useState('');
+  const[loading,setLoading]=useState(false);
+  const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+
+  async function handleLogin(){
+    if(!form.identifier||!form.password){setError('Please fill in all fields.');return;}
+    setError('');setLoading(true);
+    try{
+      const res=await authAPI.login(form.identifier,form.password);
+      if(res.error||!res.accessToken){setError(res.error||res.message||'Login failed');setLoading(false);return;}
+      setTokens(res.accessToken,res.refreshToken);
+      onSuccess&&onSuccess(res.user);
+    }catch(err){setError(err.message||'Login failed');setLoading(false);}
+  }
+
+  return <div style={{height:'100%',display:'flex',flexDirection:'column'}}>
+    <StatusBar/>
+    <div style={{padding:'20px 28px 0',display:'flex',alignItems:'center',gap:12}}>
+      <button onClick={()=>onNavigate('splash')} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Icon name="back" size={20} color={C.muted}/></button>
+      <Wordmark/>
+    </div>
+    <div style={{flex:1,padding:'28px 28px 0'}}>
+      <h1 style={{fontSize:24,fontWeight:800,color:C.text,letterSpacing:'-0.02em',marginBottom:4}}>Welcome back</h1>
+      <p style={{color:C.muted,fontSize:13,marginBottom:24}}>Sign in to continue linking up.</p>
+      <AuthField label="Email or Username" icon="user" value={form.identifier} onChange={set('identifier')} placeholder="you@example.com or @handle"/>
+      <AuthField label="Password" icon="settings" type={showPw?'text':'password'} value={form.password} onChange={set('password')} placeholder="Your password" suffix={<button onClick={()=>setShowPw(v=>!v)} style={{background:'none',border:'none',cursor:'pointer',padding:4,display:'flex'}}><Icon name={showPw?'x':'search'} size={18} color={C.muted}/></button>}/>
+      {error&&<div style={{background:`${C.error}18`,border:`1px solid ${C.error}55`,borderRadius:12,padding:'10px 14px',marginBottom:16}}><p style={{color:C.error,fontSize:13}}>{error}</p></div>}
+      <div style={{textAlign:'right',marginBottom:20}}><span style={{color:C.accent,fontSize:12,fontWeight:600,cursor:'pointer'}}>Forgot password?</span></div>
+    </div>
+    <div style={{padding:'0 28px 40px'}}>
+      <Btn onClick={handleLogin} loading={loading}>Sign In</Btn>
+      <p style={{textAlign:'center',color:C.muted,fontSize:13,marginTop:14}}>Don't have an account? <span onClick={()=>onNavigate('signup')} style={{color:C.accent,fontWeight:600,cursor:'pointer'}}>Sign up</span></p>
+    </div>
+  </div>;
 }
 
 // ── Bottom Nav ─────────────────────────────────────────────────────────────────
@@ -1677,7 +1880,7 @@ function CreateEventModal({radiusKm,hasMegaphone,onCreate,onClose}){
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE  (with Leaderboard tab inside)
 // ─────────────────────────────────────────────────────────────────────────────
-function ProfileScreen({user,xp,coins,quests,friends,onOpenSafety}){
+function ProfileScreen({user,xp,coins,quests,friends,onOpenSafety,onSignOut}){
   const [tab,setTab]=useState('overview');
   const prog=levelProgress(xp);
   const medals=['🥇','🥈','🥉'];
@@ -1718,10 +1921,18 @@ function ProfileScreen({user,xp,coins,quests,friends,onOpenSafety}){
           <span style={{fontSize:26}}>🔥</span>
           <div><p style={{color:C.text,fontWeight:700,fontSize:13}}>1-day streak</p><p style={{color:C.muted,fontSize:11,marginTop:1}}>Come back tomorrow to keep it going!</p></div>
         </div>
-        {user?.interests?.length>0&&<div>
+        {user?.interests?.length>0&&<div style={{marginBottom:16}}>
           <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:'0.07em',textTransform:'uppercase',marginBottom:8}}>Interests</p>
           <div style={{display:'flex',flexWrap:'wrap',gap:7}}>{user.interests.map(tag=><span key={tag} style={{padding:'4px 11px',borderRadius:20,background:C.accentL,color:C.accent,fontSize:12,fontWeight:600,border:`1px solid ${C.accent}33`}}>{tag}</span>)}</div>
         </div>}
+
+        {/* Sign Out */}
+        <div style={{marginTop:20,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+          <button onClick={onSignOut} style={{width:'100%',background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:'14px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontFamily:'inherit',transition:'all 0.15s'}}>
+            <span style={{fontSize:16}}>🚪</span>
+            <span style={{color:C.muted,fontWeight:600,fontSize:14}}>Sign Out</span>
+          </button>
+        </div>
       </div>}
 
       {tab==='leaderboard'&&<div style={{padding:'0 15px 15px'}}>
@@ -2685,9 +2896,54 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
 
 // ─────────────────────────────────────────────────────────────────────────────
 function App(){
+  // ── Auth state ────────────────────────────────────────────────────────────
+  const [authScreen, setAuthScreen] = useState(getToken() ? null : 'splash'); // null = logged in
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(!!getToken()); // loading if we need to verify token
+
+  // Check existing token on mount
+  useEffect(() => {
+    if (getToken()) {
+      authAPI.getMe()
+        .then(data => {
+          if (data.user) {
+            setCurrentUser(data.user);
+            setAuthScreen(null);
+          } else {
+            clearTokens();
+            setAuthScreen('splash');
+          }
+        })
+        .catch(() => {
+          clearTokens();
+          setAuthScreen('splash');
+        })
+        .finally(() => setAuthLoading(false));
+    }
+  }, []);
+
+  function handleAuthSuccess(user) {
+    setCurrentUser(user);
+    setAuthScreen(null);
+    setAuthLoading(false);
+  }
+
+  function handleSignOut() {
+    authAPI.logout().catch(() => {}); // Ignore errors, still clear local state
+    clearTokens();
+    setCurrentUser(null);
+    setAuthScreen('splash');
+  }
+
+  // ── App state ─────────────────────────────────────────────────────────────
   const load=()=>{try{const s=JSON.parse(localStorage.getItem('lu5_state')||'{}');if(s._v!=='6.0'){localStorage.removeItem('lu5_state');return{};}return s;}catch{return{}}};
   const saved=load();
-  const user=saved.user||{displayName:'You',username:'you',bio:'New to LinkUp!',interests:['Coffee meetups','Explore the city']};
+  const user=currentUser ? {
+    displayName: currentUser.display_name || currentUser.username,
+    username: currentUser.username,
+    bio: currentUser.bio || 'New to LinkUp!',
+    interests: ['Coffee meetups', 'Explore the city']
+  } : (saved.user||{displayName:'You',username:'you',bio:'New to LinkUp!',interests:['Coffee meetups','Explore the city']});
 
   const [tab,      setTab]      = useState(saved.tab    ||'map');
   const [xp,       setXp]       = useState(saved.xp     ||50);
@@ -2882,8 +3138,23 @@ function App(){
     people:  <PeopleScreen friends={friends} groups={groups} incomingRequests={incomingReqs} friendRequests={friendReqs} onRequestUser={handleSendRequest} onAddFriend={handleAddFriend} onAcceptMeetup={handleAcceptMeetup} onDeclineMeetup={handleDeclineMeetup} onAcceptFriend={handleAcceptFriend} onDeclineFriend={handleDeclineFriend} onOpenChat={openChat} onViewProfile={viewProfile} onOpenGroup={handleOpenGroup} onCreateGroup={handleCreateGroup}/>,
     events:  <EventsScreen events={MOCK_EVENTS} userEvents={userEvents} ownedBoosts={owned} rsvped={rsvped} onCreate={handleCreateEvent} onRSVP={handleRSVP}/>,
     shop:    <ShopScreen coins={coins} owned={owned} onBuy={handleBuy} quests={quests} onClaim={handleClaimQuest}/>,
-    profile: <ProfileScreen user={user} xp={xp} coins={coins} quests={quests} friends={friends} onOpenSafety={()=>setSafetyHubOpen(true)}/>,
+    profile: <ProfileScreen user={user} xp={xp} coins={coins} quests={quests} friends={friends} onOpenSafety={()=>setSafetyHubOpen(true)} onSignOut={handleSignOut}/>,
   };
+
+  // Show loading while verifying existing token
+  if (authLoading) {
+    return <Wrap><div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center'}}><Spinner size={32} color={C.accent}/></div></Wrap>;
+  }
+
+  // Show auth screens if not logged in
+  if (authScreen) {
+    const authScreens = {
+      splash: <SplashScreen onNavigate={setAuthScreen}/>,
+      signup: <SignupScreen onNavigate={setAuthScreen} onSuccess={handleAuthSuccess}/>,
+      login: <LoginScreen onNavigate={setAuthScreen} onSuccess={handleAuthSuccess}/>,
+    };
+    return <Wrap>{authScreens[authScreen] || authScreens.splash}</Wrap>;
+  }
 
   return <Wrap>
     <div style={{height:'100%',display:'flex',flexDirection:'column',position:'relative'}}>
