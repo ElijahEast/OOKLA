@@ -1,9 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component } from 'react';
 import { C, levelFromXp } from '../utils/constants';
 import { Icon, Btn, StatusBar } from '../components/ui';
 import { getSocial } from '../utils/data';
 
-export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenChat, onViewProfile, onCreateGroup, embedded }) {
+class GraphErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: false }; }
+  static getDerivedStateFromError() { return { error: true }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 32, textAlign: 'center' }}>
+          <div style={{ fontSize: 44, opacity: 0.25 }}>🕸️</div>
+          <p style={{ color: C.muted, fontSize: 14, fontWeight: 700 }}>Graph unavailable</p>
+          <button onClick={() => { this.setState({ error: false }); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 18px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}>Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export function NetworkGraph(props) {
+  return <GraphErrorBoundary><NetworkGraphInner {...props} /></GraphErrorBoundary>;
+}
+
+function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenChat, onViewProfile, onCreateGroup, embedded }) {
   const containerRef = useRef(null);
   const [tf, setTf] = useState({ x: 195, y: 310, scale: 1 });
   const [selected, setSelected] = useState(null);
@@ -46,6 +67,7 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
   }
 
   function buildGraph() {
+    try {
     const ns = [], es = [];
     ns.push({ id: '__me', label: user.display_name || user.displayName || 'You', color: C.accent, level: levelFromXp(0), r: 30, x: 0, y: 0, kind: 'me' });
 
@@ -105,6 +127,10 @@ export function NetworkGraph({ user, friends, blockedUsers, onAddFriend, onOpenC
       });
     });
     return { nodes: ns, edges: es };
+    } catch (e) {
+      console.error('buildGraph error:', e);
+      return { nodes: [{ id: '__me', label: 'You', color: C.accent, level: 1, r: 30, x: 0, y: 0, kind: 'me' }], edges: [] };
+    }
   }
 
   const { nodes, edges } = buildGraph();
