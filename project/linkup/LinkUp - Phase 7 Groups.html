@@ -2459,6 +2459,15 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   const [multiSel,setMultiSel]=useState(new Set());
   // ── Primary friends: which friends show on graph (max 8) ─
   const [primaryFriends,setPrimaryFriends]=useState(()=>{
+    // Try to load from localStorage first
+    try{
+      const saved=JSON.parse(localStorage.getItem('lu5_primaryFriends')||'null');
+      if(saved&&Array.isArray(saved)){
+        // Filter to only include usernames that are still friends
+        const validUsernames=saved.filter(u=>friends.some(f=>f.username===u));
+        if(validUsernames.length>0) return new Set(validUsernames);
+      }
+    }catch{}
     // Default: first 8 friends are primary
     return new Set(friends.slice(0,MAX_PRIMARY_FRIENDS).map(f=>f.username));
   });
@@ -2503,16 +2512,25 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     });
   },[friends]);
 
+  // Persist primaryFriends to localStorage whenever it changes
+  useEffect(()=>{
+    localStorage.setItem('lu5_primaryFriends',JSON.stringify([...primaryFriends]));
+  },[primaryFriends]);
+
   // Toggle a friend's primary status
   function togglePrimary(username){
     setPrimaryFriends(prev=>{
       const next=new Set(prev);
       if(next.has(username)){
         next.delete(username);
-        // Clear cached position so they get repositioned when re-added
+        // Clear cached position so the spot becomes available
         delete posRef.current[username];
+        // Also clear FOF positions for this friend so they don't leave orphaned nodes
+        const fofs=getSocial(username)||[];
+        fofs.forEach(ff=>{ delete posRef.current[ff.username]; });
       }else if(next.size<MAX_PRIMARY_FRIENDS){
         next.add(username);
+        // Position will be assigned fresh in buildGraph
       }
       return next;
     });
