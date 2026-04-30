@@ -158,6 +158,24 @@ function Btn({children,onClick,variant='primary',loading,disabled,full=true,smal
 function XPToast({events}){return <div style={{position:'absolute',top:80,right:14,zIndex:200,display:'flex',flexDirection:'column',gap:5,pointerEvents:'none'}}>{events.map(ev=><div key={ev.id} style={{background:C.accent,color:'#fff',fontWeight:800,fontSize:12,borderRadius:20,padding:'5px 12px',display:'flex',alignItems:'center',gap:5,animation:'xpFloat 2s ease forwards',boxShadow:`0 4px 14px ${C.accent}66`}}><Icon name="zap" size={12} color="#fff"/>+{ev.xp} XP{ev.coins?<> · 🪙+{ev.coins}</>:null}</div>)}</div>;}
 function LevelUpModal({level,onDismiss}){return <div style={{position:'absolute',inset:0,zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.75)',animation:'fadeIn 0.2s'}}><div style={{background:C.surface,borderRadius:28,padding:'34px 30px',textAlign:'center',width:300,border:`1px solid ${C.border}`,animation:'pop 0.4s ease'}}><div style={{fontSize:52,marginBottom:10}}>🎉</div><div style={{background:`linear-gradient(135deg,${C.accent},${C.gold})`,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',fontSize:28,fontWeight:800,marginBottom:6}}>Level {level}!</div><p style={{color:C.muted,fontSize:13,lineHeight:1.7,marginBottom:20}}>You've leveled up! Keep exploring and meeting people.</p><Btn onClick={onDismiss}>Awesome! 🚀</Btn></div></div>;}
 
+// ── Error Boundary for Graph ───────────────────────────────────────────────────
+class GraphErrorBoundary extends React.Component {
+  constructor(props){super(props);this.state={hasError:false};}
+  static getDerivedStateFromError(){return{hasError:true};}
+  componentDidCatch(err,info){console.error('Graph error:',err,info);}
+  render(){
+    if(this.state.hasError){
+      return <div style={{height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,padding:32,background:C.bg}}>
+        <div style={{fontSize:48}}>😵</div>
+        <p style={{color:C.text,fontWeight:700,fontSize:16}}>Something went wrong</p>
+        <p style={{color:C.muted,fontSize:13,textAlign:'center'}}>The graph encountered an error.</p>
+        <Btn small onClick={()=>this.setState({hasError:false})}>Try Again</Btn>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
+
 // ── Bottom Nav ─────────────────────────────────────────────────────────────────
 // Tabs: map | people | shop | quests | profile
 function BottomNav({active,onTab,inboxCount=0}){
@@ -1128,7 +1146,9 @@ function GraphView({user,xp,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
       </div>
     </div>
     <div style={{flex:1,overflow:'hidden',position:'relative'}}>
-      <NetworkGraph user={user} friends={friends} blockedUsers={blockedUsers} onAddFriend={onAddFriend} onOpenChat={onOpenChat} onViewProfile={onViewProfile} onCreateGroup={onCreateGroup} embedded/>
+      <GraphErrorBoundary>
+        <NetworkGraph user={user} friends={friends} blockedUsers={blockedUsers} onAddFriend={onAddFriend} onOpenChat={onOpenChat} onViewProfile={onViewProfile} onCreateGroup={onCreateGroup} embedded/>
+      </GraphErrorBoundary>
     </div>
   </div>;
 }
@@ -2225,12 +2245,15 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   },[friends]);
 
   // ── Build nodes & edges ─ deterministic layout with persistent position cache
-  const {nodes,edges}=buildGraph();
   function assignPos(username,x,y){
-    if(!posRef.current[username]) posRef.current[username]={x,y};
+    // Validate coordinates
+    const safeX=Number.isFinite(x)?x:0;
+    const safeY=Number.isFinite(y)?y:0;
+    if(!posRef.current[username]) posRef.current[username]={x:safeX,y:safeY};
     return posRef.current[username];
   }
   function buildGraph(){
+    try{
     const ns=[], es=[];
     // Center
     ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
@@ -2302,7 +2325,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
       });
     });
     return{nodes:ns,edges:es};
+    }catch(err){
+      console.error('buildGraph error:',err);
+      // Return minimal graph with just the center node
+      return{nodes:[{id:'__me',label:'You',color:C.accent,level:1,r:30,x:0,y:0,kind:'me'}],edges:[]};
+    }
   }
+  const {nodes,edges}=buildGraph();
 
 
   // ── Pointer pan/zoom ──────────────────────────────────────────────────────
