@@ -2538,50 +2538,52 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
 
   // ── Collision resolution ─────────────────────────────────────────────────────
 
-  // Check if edge passes through a node
-  function edgeHitsNode(x1,y1,x2,y2,cx,cy,r){
+  // Check if edge passes through a node (with padding for text)
+  function edgeHitsNode(x1,y1,x2,y2,cx,cy,r,padding=25){
+    const hitR=r+padding; // Account for text label below node
     const dx=x2-x1, dy=y2-y1;
     const fx=x1-cx, fy=y1-cy;
     const a=dx*dx+dy*dy;
     if(a<0.001) return false;
     const b=2*(fx*dx+fy*dy);
-    const c=fx*fx+fy*fy-r*r;
+    const c=fx*fx+fy*fy-hitR*hitR;
     const disc=b*b-4*a*c;
     if(disc<0) return false;
     const sqrtDisc=Math.sqrt(disc);
     const t1=(-b-sqrtDisc)/(2*a);
     const t2=(-b+sqrtDisc)/(2*a);
-    // Only count as hit if intersection is in middle of edge (not at endpoints)
-    return (t1>0.1&&t1<0.9)||(t2>0.1&&t2<0.9);
+    return (t1>0.05&&t1<0.95)||(t2>0.05&&t2<0.95);
   }
 
-  // Push overlapping nodes radially outward from center
-  function resolveNodeCollisions(nodeList,iterations=10){
+  // Push overlapping nodes apart - account for text labels
+  function resolveNodeCollisions(nodeList,iterations=15){
     const nodes=[...nodeList];
+    const TEXT_HEIGHT=35; // Space for text below node
+
     for(let iter=0;iter<iterations;iter++){
       let moved=false;
       for(let i=0;i<nodes.length;i++){
         for(let j=i+1;j<nodes.length;j++){
           const n1=nodes[i], n2=nodes[j];
           if(n1.id==='__me'||n2.id==='__me') continue;
+
           const dx=n2.x-n1.x, dy=n2.y-n1.y;
           const dist=Math.sqrt(dx*dx+dy*dy)||0.1;
-          const minDist=n1.r+n2.r+8;
+          // Minimum distance includes both radii plus text space
+          const minDist=n1.r+n2.r+TEXT_HEIGHT+15;
+
           if(dist<minDist){
             moved=true;
-            const push=(minDist-dist)/2+1;
-            // Push the farther node outward radially
-            const r1=Math.hypot(n1.x,n1.y)||1;
-            const r2=Math.hypot(n2.x,n2.y)||1;
-            if(r2>=r1){
-              // Push n2 outward
-              const scale=(r2+push)/r2;
-              n2.x*=scale; n2.y*=scale;
-            }else{
-              // Push n1 outward
-              const scale=(r1+push)/r1;
-              n1.x*=scale; n1.y*=scale;
-            }
+            const overlap=minDist-dist;
+            // Push apart along the angle between them
+            const angle=Math.atan2(dy,dx);
+            const push=overlap/2+2;
+
+            // Move both nodes apart
+            n1.x-=Math.cos(angle)*push*0.5;
+            n1.y-=Math.sin(angle)*push*0.5;
+            n2.x+=Math.cos(angle)*push*0.5;
+            n2.y+=Math.sin(angle)*push*0.5;
           }
         }
       }
@@ -2593,13 +2595,47 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
     return nodes;
   }
 
-  // Build edge data - always straight lines for geometric look
+  // Build edge paths - curve around nodes if needed
   function computeEdgePaths(edgeList,nodeList){
     return edgeList.map(e=>{
       const f=nodeList.find(n=>n.id===e.from);
       const t=nodeList.find(n=>n.id===e.to);
       if(!f||!t) return null;
-      return{...e,x1:f.x,y1:f.y,x2:t.x,y2:t.y};
+
+      // Check if edge passes through any other node
+      let blockers=[];
+      for(const n of nodeList){
+        if(n.id===e.from||n.id===e.to) continue;
+        if(edgeHitsNode(f.x,f.y,t.x,t.y,n.x,n.y,n.r,20)){
+          blockers.push(n);
+        }
+      }
+
+      if(blockers.length===0){
+        // Straight line
+        return{...e,x1:f.x,y1:f.y,x2:t.x,y2:t.y,path:`M${f.x},${f.y}L${t.x},${t.y}`};
+      }
+
+      // Curve around blockers - find the side to curve toward
+      const mx=(f.x+t.x)/2, my=(f.y+t.y)/2;
+      const edgeAngle=Math.atan2(t.y-f.y,t.x-f.x);
+      const perpAngle=edgeAngle+Math.PI/2;
+
+      // Determine which side has fewer blockers
+      let leftClear=true, rightClear=true;
+      for(const b of blockers){
+        const side=(b.x-mx)*Math.cos(perpAngle)+(b.y-my)*Math.sin(perpAngle);
+        if(side>0) rightClear=false;
+        else leftClear=false;
+      }
+
+      const curveDir=leftClear?1:rightClear?-1:(Math.random()>0.5?1:-1);
+      const curveDist=30+blockers.length*15;
+      const cx=mx+Math.cos(perpAngle)*curveDir*curveDist;
+      const cy=my+Math.sin(perpAngle)*curveDir*curveDist;
+
+      return{...e,x1:f.x,y1:f.y,x2:t.x,y2:t.y,curved:true,cx,cy,
+        path:`M${f.x},${f.y}Q${cx},${cy} ${t.x},${t.y}`};
     }).filter(Boolean);
   }
 
@@ -2927,13 +2963,13 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
           </filter>
         </defs>
         <g transform={`translate(${tf.x},${tf.y}) scale(${tf.scale})`}>
-          {/* Edges — straight lines for geometric look */}
+          {/* Edges — straight or curved to avoid overlaps */}
           {edgePaths.map((ep,i)=>{
             const sw=ep.strength==='strong'?2:1;
             const op=ep.strength==='strong'?0.5:ep.strength==='weak'?0.25:0.12;
             const sc=ep.strength==='strong'?C.accent:C.muted;
             const sd=ep.strength==='weak'?'6 4':ep.strength==='vweak'?'3 5':undefined;
-            return <line key={i} x1={ep.x1} y1={ep.y1} x2={ep.x2} y2={ep.y2} stroke={sc} strokeWidth={sw} strokeDasharray={sd} opacity={op}/>;
+            return <path key={i} d={ep.path} stroke={sc} strokeWidth={sw} strokeDasharray={sd} opacity={op} fill="none"/>;
           })}
           {/* Nodes */}
           {nodes.map(n=>{
