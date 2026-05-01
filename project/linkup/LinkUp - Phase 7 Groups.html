@@ -2617,33 +2617,47 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   function buildGraph(){
     const ns=[], es=[];
     const allFriends=graphFriends.filter(f=>!blockedUsers.some(b=>b.username===f.username));
-    // Only show primary friends on the graph
-    const visibleFriends=allFriends.filter(f=>primaryFriends.has(f.username));
+    // Split into root friends (no parent) and derived friends (added from graph, have parent)
+    const rootFriends=allFriends.filter(f=>primaryFriends.has(f.username)&&!f.parent);
+    const derivedFriends=allFriends.filter(f=>f.parent);
 
-    // Only show center "You" node if there are visible friends
-    if(visibleFriends.length>0){
+    // Only show center "You" node if there are root friends
+    if(rootFriends.length>0){
       ns.push({id:'__me',label:user.displayName||'You',color:C.accent,level:levelFromXp(0),r:30,x:0,y:0,kind:'me'});
     }
 
-    // Geometric layout: evenly space friends in a circle
-    // Always recalculate positions for root friends to ensure even spacing
-    const count=visibleFriends.length||1;
-    const R1=Math.max(100,Math.min(140,80+count*15)); // Radius scales with count
+    // Geometric layout: evenly space ROOT friends in a circle
+    const count=rootFriends.length||1;
+    const R1=Math.max(100,Math.min(140,80+count*15));
 
-    visibleFriends.forEach((f,i)=>{
-      // Even angular spacing, starting from top - always fresh calculation
+    rootFriends.forEach((f,i)=>{
       const angle=(2*Math.PI*i/count)-(Math.PI/2);
       const x=R1*Math.cos(angle);
       const y=R1*Math.sin(angle);
-      // Always update position for root friends to maintain even spacing
       posRef.current[f.username]={x,y};
-
       ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:22,x,y,kind:'friend',data:f,angle});
       es.push({from:'__me',to:f.username,strength:'strong'});
     });
 
-    // FOFs — radiate straight outward from each friend
-    // Always recalculate positions based on parent's current position
+    // Derived friends (former FOFs) — position relative to their parent
+    derivedFriends.forEach(f=>{
+      const parentNode=ns.find(n=>n.id===f.parent);
+      if(!parentNode) return; // Parent not visible, skip
+      const baseAngle=Math.atan2(parentNode.y,parentNode.x);
+      const R2=Math.hypot(parentNode.x,parentNode.y)+90;
+      // Find how many derived friends share this parent to spread them
+      const siblings=derivedFriends.filter(df=>df.parent===f.parent);
+      const idx=siblings.indexOf(f);
+      const spreadAngle=siblings.length===1?0:(idx-(siblings.length-1)/2)*0.4;
+      const angle=baseAngle+spreadAngle;
+      const x=R2*Math.cos(angle);
+      const y=R2*Math.sin(angle);
+      posRef.current[f.username]={x,y};
+      ns.push({id:f.username,label:f.display_name,color:f.color,level:f.level,r:20,x,y,kind:'friend',data:f,parent:f.parent,angle});
+      es.push({from:f.parent,to:f.username,strength:'strong'});
+    });
+
+    // FOFs — radiate straight outward from each friend (root or derived)
     ns.filter(n=>n.kind==='friend').forEach(fn=>{
       const f=fn.data;
       const baseAngle=Math.atan2(fn.y,fn.x);
@@ -2652,21 +2666,18 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
         !blockedUsers.some(b=>b.username===ff.username)
       ).slice(0,3);
 
-      const R2=Math.hypot(fn.x,fn.y)+90; // Fixed distance from friend
+      const R2=Math.hypot(fn.x,fn.y)+90;
       fofs.forEach((ff,j)=>{
         if(ns.find(n=>n.id===ff.username)) return;
-        // Spread FOFs in a narrow arc, centered on outward direction
         const spreadAngle=fofs.length===1?0:(j-(fofs.length-1)/2)*0.4;
         const fofAngle=baseAngle+spreadAngle;
         const x=R2*Math.cos(fofAngle);
         const y=R2*Math.sin(fofAngle);
-        // Always use fresh position based on parent's current location
         posRef.current[ff.username]={x,y};
-
         ns.push({id:ff.username,label:ff.display_name,color:ff.color,level:ff.level,r:16,x,y,kind:'fof',data:ff,parent:f.username,angle:fofAngle});
         es.push({from:f.username,to:ff.username,strength:'weak'});
 
-        // Level 3 — pending FOF's friends (also recalculate based on FOF position)
+        // Level 3 — pending FOF's friends
         if(pending[ff.username]){
           const fofFofs=(getSocial(ff.username)||[]).filter(fff=>
             !allFriends.some(m=>m.username===fff.username)&&
