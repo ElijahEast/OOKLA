@@ -3371,11 +3371,14 @@ function App(){
           persist({friends:u});
           return u;
         });
-        // Reload XP from backend
+        // Reload XP from backend, fallback to local +10 if backend doesn't update
         const meRes = await authAPI.getMe().catch(() => null);
         if (meRes?.user?.xp !== undefined) {
           setXp(meRes.user.xp);
           persist({ xp: meRes.user.xp });
+        } else {
+          // Backend XP didn't load, add locally
+          setXp(prev => { const n = prev + 10; persist({ xp: n }); return n; });
         }
         // Show XP toast
         const id=Date.now();
@@ -3396,6 +3399,11 @@ function App(){
         persist({friends:u});
         return u;
       });
+      // Award XP locally as fallback
+      setXp(prev => { const n = prev + 10; persist({ xp: n }); return n; });
+      const id=Date.now();
+      setXpToasts(t=>[...t,{id,xp:10,coins:0}]);
+      setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==id)),2200);
     }
   }
   async function handleAcceptFriend(id){

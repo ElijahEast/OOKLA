@@ -51,7 +51,12 @@ router.post('/request', authenticate, [
     } else {
       // Mock/NPC user: auto-accept and award XP immediately
       // Create a virtual friendship record (just for the requester)
-      await awardXP(req.user.sub, { eventType: 'friend_added', xp: 10, description: 'Added a new friend!' });
+      try {
+        await awardXP(req.user.sub, { eventType: 'friend_added', xp: 10, description: 'Added a new friend!' });
+      } catch (xpErr) {
+        // XP award failed (e.g., xp_events table missing), but still continue
+        console.log('XP award failed for mock friend:', xpErr.message);
+      }
 
       res.status(201).json({
         friendship: { id: Date.now(), status: 'accepted', created_at: new Date() },
