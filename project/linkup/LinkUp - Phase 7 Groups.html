@@ -160,6 +160,16 @@ const dataAPI = {
     method: 'PATCH',
     body: JSON.stringify(updates)
   }),
+  updateLocation: (lat, lng) => apiCall('/api/profiles/me/location', {
+    method: 'POST',
+    body: JSON.stringify({ lat, lng })
+  }),
+
+  // Gamification - sync XP to backend
+  awardXP: (eventType, xp, coins = 0, description = '') => apiCall('/api/gamification/award', {
+    method: 'POST',
+    body: JSON.stringify({ eventType, xp, coins, description })
+  }).catch(() => null), // Fail silently, local state still updates
 };
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
@@ -3160,6 +3170,22 @@ function App(){
   // Load user data from backend
   async function loadBackendData() {
     try {
+      // Load user's profile (XP, level, coins, etc.)
+      const meRes = await authAPI.getMe().catch(() => ({ user: null }));
+      if (meRes.user) {
+        // Update currentUser with full profile data
+        setCurrentUser(prev => ({ ...prev, ...meRes.user }));
+        // Set XP, level, coins from backend
+        if (meRes.user.xp !== undefined) {
+          setXp(meRes.user.xp);
+          persist({ xp: meRes.user.xp });
+        }
+        if (meRes.user.coins !== undefined) {
+          setCoins(meRes.user.coins);
+          persist({ coins: meRes.user.coins });
+        }
+      }
+
       // Load friends from backend
       const friendsRes = await dataAPI.getFriends().catch(() => ({ friends: [] }));
       if (friendsRes.friends && friendsRes.friends.length > 0) {
@@ -3177,12 +3203,8 @@ function App(){
         persist({ friends: backendFriends });
       }
 
-      // Load shop data (coins, owned items)
-      const shopRes = await dataAPI.getShop().catch(() => ({ coins: 20, items: [] }));
-      if (shopRes.coins !== undefined) {
-        setCoins(shopRes.coins);
-        persist({ coins: shopRes.coins });
-      }
+      // Load shop data (owned items)
+      const shopRes = await dataAPI.getShop().catch(() => ({ coins: 0, items: [] }));
       if (shopRes.items) {
         const ownedKeys = shopRes.items.filter(i => i.owned).map(i => i.key);
         if (ownedKeys.length > 0) {
@@ -3308,7 +3330,7 @@ function App(){
     }));
   }
 
-  function awardXP(amount,awardCoins=0){
+  function awardXP(amount,awardCoins=0,eventType='generic'){
     const xpAmt=Math.max(0,amount), coinAmt=Math.max(0,awardCoins);
     if(xpAmt===0&&coinAmt===0) return;
     const id=Date.now();
@@ -3320,6 +3342,8 @@ function App(){
       persist({xp:n}); return n;
     });
     if(coinAmt>0) setCoins(prev=>{const n=Math.max(0,prev+coinAmt);persist({coins:n});return n;});
+    // Sync to backend (fire and forget)
+    if(currentUser) dataAPI.awardXP(eventType, xpAmt, coinAmt);
   }
 
   function handleSendRequest(target){setRequestModal(target);}

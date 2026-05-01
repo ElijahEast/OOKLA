@@ -18,6 +18,7 @@ const searchRoutes      = require('./routes/search');
 const notifRoutes       = require('./routes/notifications');
 const safetyRoutes      = require('./routes/safety');
 const groupRoutes       = require('./routes/groups');
+const gamificationRoutes = require('./routes/gamification');
 const { errorHandler } = require('./middleware/errorHandler');
 const { verifyAccessToken } = require('./utils/jwt');
 
@@ -67,6 +68,7 @@ app.use('/api/search',         searchRoutes);
 app.use('/api/notifications',  notifRoutes);
 app.use('/api/safety',         safetyRoutes);
 app.use('/api/groups',         groupRoutes);
+app.use('/api/gamification',   gamificationRoutes);
 
 // ─── Error Handler ─────────────────────────────────────────────────────────────
 app.use(errorHandler);
