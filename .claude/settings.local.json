@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(findstr:*)",
+      "Bash(copy \"C:\\\\Users\\\\elija\\\\OOKLA\\\\project\\\\linkup\\\\LinkUp - Phase 7 Groups.html\" \"C:\\\\Users\\\\elija\\\\OOKLA\\\\project\\\\linkup\\\\index.html\" /Y)",
+      "Bash(git add:*)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\elija\\\\OOKLA\\\\project\\\\linkup\\\\backend\\\\*.js\")",
+      "Bash(curl:*)"
+    ]
+  }
+}

@@ -3186,22 +3186,26 @@ function App(){
         }
       }
 
-      // Load friends from backend
+      // Load friends from backend and merge with local mock friends
       const friendsRes = await dataAPI.getFriends().catch(() => ({ friends: [] }));
-      if (friendsRes.friends && friendsRes.friends.length > 0) {
-        const backendFriends = friendsRes.friends.map(f => ({
-          id: f.friend_id,
-          username: f.username,
-          display_name: f.display_name,
-          level: f.level || 1,
-          xp: f.xp || 0,
-          avatar_url: f.avatar_url,
-          color: `oklch(58% 0.16 ${Math.floor(Math.random() * 360)})`,
-          distance_m: Math.floor(Math.random() * 1500) + 100,
-        }));
-        setFriends(backendFriends);
-        persist({ friends: backendFriends });
-      }
+      const backendFriends = (friendsRes.friends || []).map(f => ({
+        id: f.friend_id,
+        username: f.username,
+        display_name: f.display_name,
+        level: f.level || 1,
+        xp: f.xp || 0,
+        avatar_url: f.avatar_url,
+        color: `oklch(58% 0.16 ${Math.floor(Math.random() * 360)})`,
+        distance_m: Math.floor(Math.random() * 1500) + 100,
+        fromBackend: true,
+      }));
+      // Merge: keep local friends that aren't in backend, add backend friends
+      setFriends(prev => {
+        const localOnly = prev.filter(lf => !backendFriends.some(bf => bf.username === lf.username));
+        const merged = [...localOnly, ...backendFriends];
+        persist({ friends: merged });
+        return merged;
+      });
 
       // Load shop data (owned items)
       const shopRes = await dataAPI.getShop().catch(() => ({ coins: 0, items: [] }));
