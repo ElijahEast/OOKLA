@@ -3352,37 +3352,72 @@ function App(){
   function handleAcceptMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));awardXP(15,2);}
   function handleDeclineMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));}
 
-  function handleAddFriend(target){
-    // Send friend request to backend (optimistic update)
-    dataAPI.sendFriendRequest(target.username).catch(err => {
+  async function handleAddFriend(target){
+    // Send friend request to backend
+    try {
+      const result = await dataAPI.sendFriendRequest(target.username);
+
+      if (result.mock || result.friendship?.status === 'accepted') {
+        // Mock user or auto-accepted: add to friends immediately, XP awarded
+        setFriends(prev=>{
+          if(prev.some(f=>f.username===target.username)) return prev;
+          const newFriend={
+            ...target,
+            distance_m:target.distance_m||950,
+            parent:target.parent||null,
+            graphPos:target.graphPos||null
+          };
+          const u=[...prev,newFriend];
+          persist({friends:u});
+          return u;
+        });
+        // Reload XP from backend
+        const meRes = await authAPI.getMe().catch(() => null);
+        if (meRes?.user?.xp !== undefined) {
+          setXp(meRes.user.xp);
+          persist({ xp: meRes.user.xp });
+        }
+        // Show XP toast
+        const id=Date.now();
+        setXpToasts(t=>[...t,{id,xp:10,coins:0}]);
+        setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==id)),2200);
+      } else if (result.pending) {
+        // Real user: friend request sent, waiting for acceptance
+        // Add visual feedback but don't add to friends yet
+        setNotifs(n=>[{id:`n-req-${Date.now()}`,type:'info',icon:'📤',title:'Friend request sent!',body:`Waiting for @${target.username} to accept`,ts:Date.now(),read:false},...n]);
+      }
+    } catch(err) {
       console.log('Friend request failed (may already exist):', err);
-    });
-    setTimeout(()=>{
+      // Still add to local state for mock/offline experience
       setFriends(prev=>{
         if(prev.some(f=>f.username===target.username)) return prev;
-        // Preserve parent and graphPos for graph-added friends (FOF)
-        const newFriend={
-          ...target,
-          distance_m:target.distance_m||950,
-          parent:target.parent||null,
-          graphPos:target.graphPos||null
-        };
+        const newFriend={...target,distance_m:target.distance_m||950,parent:target.parent||null,graphPos:target.graphPos||null};
         const u=[...prev,newFriend];
         persist({friends:u});
         return u;
       });
-      awardXP(10);
-    },700);
+    }
   }
-  function handleAcceptFriend(id){
+  async function handleAcceptFriend(id){
     const req=friendReqs.find(r=>r.id===id);
     if(req){
-      // Accept on backend
-      dataAPI.respondToFriend(id, 'accepted').catch(err => {
+      // Accept on backend - it awards XP
+      try {
+        await dataAPI.respondToFriend(id, 'accepted');
+        // Reload XP from backend
+        const meRes = await authAPI.getMe().catch(() => null);
+        if (meRes?.user?.xp !== undefined) {
+          setXp(meRes.user.xp);
+          persist({ xp: meRes.user.xp });
+        }
+      } catch(err) {
         console.log('Accept friend failed:', err);
-      });
+      }
       setFriends(prev=>{if(prev.some(f=>f.username===req.username))return prev;const u=[...prev,{...req,distance_m:450}];persist({friends:u});return u;});
-      awardXP(10);
+      // Show XP toast
+      const toastId=Date.now();
+      setXpToasts(t=>[...t,{id:toastId,xp:10,coins:0}]);
+      setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==toastId)),2200);
     }
     setFriendReqs(r=>r.filter(x=>x.id!==id));
   }

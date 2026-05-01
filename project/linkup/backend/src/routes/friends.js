@@ -14,35 +14,50 @@ router.post('/request', authenticate, [
 
   const { username } = req.body;
   try {
+    // Check if target user exists in database (real user)
     const targetRes = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
-    if (!targetRes.rows.length) return res.status(404).json({ error: 'User not found.' });
-    const addresseeId = targetRes.rows[0].id;
+    const isRealUser = targetRes.rows.length > 0;
 
-    if (addresseeId === req.user.sub) return res.status(400).json({ error: 'Cannot friend yourself.' });
+    if (isRealUser) {
+      // Real user flow: create pending friendship, XP awarded when accepted
+      const addresseeId = targetRes.rows[0].id;
 
-    // Check if friendship already exists in either direction
-    const existing = await pool.query(
-      `SELECT id, status FROM friendships
-       WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)`,
-      [req.user.sub, addresseeId]
-    );
-    if (existing.rows.length) {
-      return res.status(409).json({ error: 'Friendship already exists.', status: existing.rows[0].status });
+      if (addresseeId === req.user.sub) return res.status(400).json({ error: 'Cannot friend yourself.' });
+
+      // Check if friendship already exists
+      const existing = await pool.query(
+        `SELECT id, status FROM friendships
+         WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)`,
+        [req.user.sub, addresseeId]
+      );
+      if (existing.rows.length) {
+        return res.status(409).json({ error: 'Friendship already exists.', status: existing.rows[0].status });
+      }
+
+      // Create pending friendship - XP awarded only when they accept
+      const result = await pool.query(
+        `INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1, $2, 'pending') RETURNING id, status, created_at`,
+        [req.user.sub, addresseeId]
+      );
+
+      // Notify addressee of friend request
+      await pool.query(
+        `INSERT INTO notifications (user_id, type, title, body, ref_id)
+         VALUES ($1, 'friend_request', 'New friend request', $2, $3)`,
+        [addresseeId, `@${req.user.username} wants to be friends`, result.rows[0].id]
+      );
+
+      res.status(201).json({ friendship: result.rows[0], pending: true });
+    } else {
+      // Mock/NPC user: auto-accept and award XP immediately
+      // Create a virtual friendship record (just for the requester)
+      await awardXP(req.user.sub, { eventType: 'friend_added', xp: 10, description: 'Added a new friend!' });
+
+      res.status(201).json({
+        friendship: { id: Date.now(), status: 'accepted', created_at: new Date() },
+        mock: true
+      });
     }
-
-    const result = await pool.query(
-      `INSERT INTO friendships (requester_id, addressee_id) VALUES ($1, $2) RETURNING id, status, created_at`,
-      [req.user.sub, addresseeId]
-    );
-
-    // Notify addressee
-    await pool.query(
-      `INSERT INTO notifications (user_id, type, title, body, ref_id)
-       VALUES ($1, 'friend_request', 'New friend request', $2, $3)`,
-      [addresseeId, `@${req.user.username} wants to be friends`, result.rows[0].id]
-    );
-
-    res.status(201).json({ friendship: result.rows[0] });
   } catch (err) { next(err); }
 });
 
