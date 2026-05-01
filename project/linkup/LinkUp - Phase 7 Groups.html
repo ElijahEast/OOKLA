@@ -3311,15 +3311,24 @@ function App(){
   // Load backend data when user logs in or session restores
   useEffect(() => {
     if (currentUser) {
+      // Load saved local data for this user first
+      const savedData = load(currentUser.username);
+
       // Reset to backend values (override any stale local data)
       if (currentUser.xp !== undefined) setXp(currentUser.xp);
       if (currentUser.coins !== undefined) setCoins(currentUser.coins);
-      // Clear any leftover data from previous session
-      setFriends([]);
-      setOwned([]);
+
+      // Load saved friends from localStorage (preserves mock friends)
+      if (savedData?.friends) {
+        setFriends(savedData.friends);
+      } else {
+        setFriends([]);
+      }
+
+      setOwned(savedData?.owned || []);
       setFriendReqs([]);
       setIncomingReqs([]);
-      // Load fresh data from backend
+      // Load fresh data from backend and merge with local
       loadBackendData();
     }
   }, [currentUser]);
