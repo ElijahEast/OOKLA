@@ -3199,13 +3199,14 @@ function App(){
         distance_m: Math.floor(Math.random() * 1500) + 100,
         fromBackend: true,
       }));
+      // Load local friends directly from localStorage to avoid race condition
+      const localData = JSON.parse(localStorage.getItem('lu5_state') || '{}');
+      const localFriends = (localData._user === currentUser?.username) ? (localData.friends || []) : [];
       // Merge: keep local friends that aren't in backend, add backend friends
-      setFriends(prev => {
-        const localOnly = prev.filter(lf => !backendFriends.some(bf => bf.username === lf.username));
-        const merged = [...localOnly, ...backendFriends];
-        persist({ friends: merged });
-        return merged;
-      });
+      const localOnly = localFriends.filter(lf => !backendFriends.some(bf => bf.username === lf.username));
+      const merged = [...localOnly, ...backendFriends];
+      setFriends(merged);
+      persist({ friends: merged });
 
       // Load shop data (owned items)
       const shopRes = await dataAPI.getShop().catch(() => ({ coins: 0, items: [] }));
