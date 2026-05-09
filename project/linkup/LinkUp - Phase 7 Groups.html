@@ -3370,17 +3370,6 @@ function App(){
     }
   }, [currentUser]);
 
-  // Auto-persist friends whenever they change
-  useEffect(() => {
-    if (currentUser && friends.length > 0) {
-      localStorage.setItem('lu5_state', JSON.stringify({
-        _v: '6.0',
-        _user: currentUser.username,
-        tab, xp, coins, quests, friends, owned, goldTheme, userEvents, rsvped, groups,
-      }));
-    }
-  }, [friends, currentUser]);
-
   function persist(updates){
     if(!currentUser) return; // Don't persist if not logged in
     localStorage.setItem('lu5_state',JSON.stringify({
