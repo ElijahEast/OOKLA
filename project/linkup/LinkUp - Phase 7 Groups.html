@@ -2506,24 +2506,24 @@ function NetworkGraph({user,friends,blockedUsers,onAddFriend,onOpenChat,onViewPr
   // friendParent: friend username → the friend through which they were discovered (for FOF-added friends)
   const friendParentRef=useRef({}); // username → parent friend username
 
-  // Keep graphFriends in sync when parent friends changes
+  // Sync graphFriends with friends ONLY ONCE on mount, not on every change
+  const friendsSyncedRef=useRef(false);
   useEffect(()=>{
-    setGraphFriends(prev=>{
-      const merged=[...friends];
-      prev.forEach(p=>{ if(!merged.find(m=>m.username===p.username)) merged.push(p); });
-      return merged;
-    });
-    // Update primaryFriends when friends list changes
+    if(friendsSyncedRef.current) return; // Only sync once
+    if(friends.length === 0) return; // Wait for friends to load
+    friendsSyncedRef.current = true;
+
+    setGraphFriends([...friends]);
     setPrimaryFriends(prev=>{
-      const updated=new Set([...prev].filter(u=>friends.some(f=>f.username===u)));
-      // If we have room, add new friends
+      const updated=new Set();
       friends.forEach(f=>{
-        if(updated.size<MAX_PRIMARY_FRIENDS&&!updated.has(f.username)){
+        if(updated.size<MAX_PRIMARY_FRIENDS){
           updated.add(f.username);
         }
       });
       return updated;
     });
+    console.log('GraphFriends synced ONCE with', friends.length, 'friends');
   },[friends]);
 
   // Restore posRef and friendParentRef from persisted friend data on mount/update
@@ -3363,27 +3363,18 @@ function App(){
   const unreadNotifs=notifs.filter(n=>!n.read).length;
   const inboxCount=incomingReqs.length+friendReqs.length;
 
-  // Load backend data when user logs in or session restores
+  // Load backend data ONCE when user logs in - use username as stable dependency
+  const currentUsername = currentUser?.username;
   useEffect(() => {
-    if (currentUser) {
+    if (currentUsername) {
       // Prevent infinite loops: only load data once per user
-      if (dataLoadedForRef.current === currentUser.username) {
-        console.log('Data already loaded for', currentUser.username, '- skipping');
-        return; // Already loaded data for this user
+      if (dataLoadedForRef.current === currentUsername) {
+        return; // Already loaded data for this user - STOP
       }
-      dataLoadedForRef.current = currentUser.username;
-      console.log('First load for user:', currentUser.username);
+      dataLoadedForRef.current = currentUsername;
+      console.log('=== INITIAL LOAD for user:', currentUsername, '===');
 
-      // Reset to backend values from currentUser (set during auth)
-      if (currentUser.xp !== undefined) setXp(currentUser.xp);
-      if (currentUser.coins !== undefined) setCoins(currentUser.coins);
-
-      // Don't set friends here - let loadBackendData handle it to avoid double-setting
-      // loadBackendData will merge localStorage friends with backend friends
-      setFriendReqs([]);
-      setIncomingReqs([]);
-
-      // Load fresh data from backend and merge with local
+      // Load fresh data from backend ONCE
       loadBackendData();
     } else {
       // User logged out, reset refs so we reload data on next login
@@ -3391,7 +3382,7 @@ function App(){
       isLoadingDataRef.current = false;
       friendsInitializedRef.current = false;
     }
-  }, [currentUser]);
+  }, [currentUsername]); // STABLE dependency - only changes when username changes
 
   function persist(updates){
     if(!currentUser) return; // Don't persist if not logged in
