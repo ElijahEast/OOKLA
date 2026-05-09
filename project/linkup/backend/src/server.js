@@ -33,21 +33,23 @@ app.use(cors({
 }));
 
 // ─── Rate Limiting ─────────────────────────────────────────────────────────────
+// Rate limiting disabled for development - re-enable for production
 const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute window
-  max: 200, // 200 requests per minute for dev/testing
+  windowMs: 1 * 60 * 1000,
+  max: 10000, // Effectively disabled
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
 });
 
 const authLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute window
-  max: 100, // 100 requests per minute for dev/testing
+  windowMs: 1 * 60 * 1000,
+  max: 10000, // Effectively disabled
   message: { error: 'Too many auth attempts, please try again later.' },
 });
 
-app.use(limiter);
+// Commented out for development - uncomment for production
+// app.use(limiter);
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true }));
 
