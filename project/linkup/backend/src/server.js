@@ -34,8 +34,8 @@ app.use(cors({
 
 // ─── Rate Limiting ─────────────────────────────────────────────────────────────
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 200, // 200 requests per minute for dev/testing
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
