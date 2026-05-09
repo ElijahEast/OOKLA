@@ -49,19 +49,84 @@ router.post('/request', authenticate, [
 
       res.status(201).json({ friendship: result.rows[0], pending: true });
     } else {
-      // Mock/NPC user: auto-accept and award XP immediately
-      // Create a virtual friendship record (just for the requester)
+      // Mock/NPC user: create them in database and auto-accept friendship
+      const client = await pool.connect();
       try {
-        await awardXP(req.user.sub, { eventType: 'friend_added', xp: 10, description: 'Added a new friend!' });
-      } catch (xpErr) {
-        // XP award failed (e.g., xp_events table missing), but still continue
-        console.log('XP award failed for mock friend:', xpErr.message);
-      }
+        await client.query('BEGIN');
 
-      res.status(201).json({
-        friendship: { id: Date.now(), status: 'accepted', created_at: new Date() },
-        mock: true
-      });
+        // Create mock user in database if they don't exist
+        const mockEmail = `${username}@mock.linkup.local`;
+        const mockPasswordHash = '$2a$12$mockpasswordhashnotusedforlogin';
+
+        // Insert or get existing mock user
+        let mockUserId;
+        const existingMock = await client.query(
+          'SELECT id FROM users WHERE username = $1',
+          [username]
+        );
+
+        if (existingMock.rows.length > 0) {
+          mockUserId = existingMock.rows[0].id;
+        } else {
+          // Create the mock user
+          const newUser = await client.query(
+            `INSERT INTO users (email, username, password_hash, is_verified)
+             VALUES ($1, $2, $3, true) RETURNING id`,
+            [mockEmail, username, mockPasswordHash]
+          );
+          mockUserId = newUser.rows[0].id;
+
+          // Create profile for mock user (get display_name from request body if provided)
+          const displayName = req.body.display_name || username.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+          const level = req.body.level || Math.floor(Math.random() * 15) + 1;
+          const xp = req.body.xp || level * 100;
+          await client.query(
+            `INSERT INTO profiles (user_id, display_name, xp, level, bio)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [mockUserId, displayName, xp, level, 'Mock user']
+          );
+        }
+
+        // Check if friendship already exists
+        const existing = await client.query(
+          `SELECT id, status FROM friendships
+           WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)`,
+          [req.user.sub, mockUserId]
+        );
+
+        let friendship;
+        if (existing.rows.length > 0) {
+          // Already friends
+          friendship = existing.rows[0];
+        } else {
+          // Create accepted friendship immediately (mock users auto-accept)
+          const result = await client.query(
+            `INSERT INTO friendships (requester_id, addressee_id, status)
+             VALUES ($1, $2, 'accepted') RETURNING id, status, created_at`,
+            [req.user.sub, mockUserId]
+          );
+          friendship = result.rows[0];
+        }
+
+        await client.query('COMMIT');
+
+        // Award XP
+        try {
+          await awardXP(req.user.sub, { eventType: 'friend_added', xp: 10, description: 'Added a new friend!' });
+        } catch (xpErr) {
+          console.log('XP award failed for mock friend:', xpErr.message);
+        }
+
+        res.status(201).json({
+          friendship,
+          mock: true
+        });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     }
   } catch (err) { next(err); }
 });

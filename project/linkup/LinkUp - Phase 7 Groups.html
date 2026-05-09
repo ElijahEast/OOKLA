@@ -138,9 +138,15 @@ const dataAPI = {
   // Friends
   getFriends: () => apiCall('/api/friends'),
   getPendingFriends: () => apiCall('/api/friends/pending'),
-  sendFriendRequest: (username) => apiCall('/api/friends/request', {
+  sendFriendRequest: (username, friendData = {}) => apiCall('/api/friends/request', {
     method: 'POST',
-    body: JSON.stringify({ username })
+    body: JSON.stringify({
+      username,
+      display_name: friendData.display_name,
+      level: friendData.level,
+      xp: friendData.xp,
+      bio: friendData.bio
+    })
   }),
   respondToFriend: (id, action) => apiCall(`/api/friends/${id}/respond`, {
     method: 'PATCH',
@@ -3408,9 +3414,14 @@ function App(){
   function handleDeclineMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));}
 
   async function handleAddFriend(target){
-    // Send friend request to backend
+    // Send friend request to backend with friend's data
     try {
-      const result = await dataAPI.sendFriendRequest(target.username);
+      const result = await dataAPI.sendFriendRequest(target.username, {
+        display_name: target.display_name,
+        level: target.level,
+        xp: target.xp,
+        bio: target.bio
+      });
 
       if (result.mock || result.friendship?.status === 'accepted') {
         // Mock user or auto-accepted: add to friends immediately, XP awarded
