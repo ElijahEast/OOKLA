@@ -170,6 +170,18 @@ const dataAPI = {
     method: 'POST',
     body: JSON.stringify({ eventType, xp, coins, description })
   }).catch(() => null), // Fail silently, local state still updates
+
+  // Gamification - get progress
+  getProgress: () => apiCall('/api/gamification/progress').catch(() => null),
+
+  // Streaks
+  getStreak: () => apiCall('/api/gamification/streak', { method: 'POST' }).catch(() => null),
+
+  // Notifications
+  getNotifications: () => apiCall('/api/notifications').catch(() => ({ notifications: [] })),
+
+  // Groups
+  getGroups: () => apiCall('/api/groups').catch(() => ({ groups: [] })),
 };
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
@@ -3167,27 +3179,23 @@ function App(){
     }
   }, []);
 
-  // Load user data from backend
+  // Load ALL user data from backend on login
   async function loadBackendData() {
+    console.log('Loading all user data from backend...');
     try {
-      // Load user's profile (XP, level, coins, etc.)
+      // 1. Load user's profile (XP, level, coins, display_name, bio, etc.)
       const meRes = await authAPI.getMe().catch(() => ({ user: null }));
       if (meRes.user) {
-        // Update currentUser with full profile data
+        console.log('Loaded profile:', meRes.user);
         setCurrentUser(prev => ({ ...prev, ...meRes.user }));
-        // Set XP, level, coins from backend
-        if (meRes.user.xp !== undefined) {
-          setXp(meRes.user.xp);
-          persist({ xp: meRes.user.xp });
-        }
-        if (meRes.user.coins !== undefined) {
-          setCoins(meRes.user.coins);
-          persist({ coins: meRes.user.coins });
-        }
+        // Set XP, level, coins from backend (database is source of truth)
+        if (meRes.user.xp !== undefined) setXp(meRes.user.xp);
+        if (meRes.user.coins !== undefined) setCoins(meRes.user.coins);
       }
 
-      // Load friends from backend and merge with local mock friends
+      // 2. Load friends from backend and merge with local mock friends
       const friendsRes = await dataAPI.getFriends().catch(() => ({ friends: [] }));
+      console.log('Loaded friends from backend:', friendsRes.friends?.length || 0);
       const backendFriends = (friendsRes.friends || []).map(f => ({
         id: f.friend_id,
         username: f.username,
@@ -3199,29 +3207,18 @@ function App(){
         distance_m: Math.floor(Math.random() * 1500) + 100,
         fromBackend: true,
       }));
-      // Load local friends directly from localStorage to avoid race condition
+      // Load local mock friends and merge
       const localData = JSON.parse(localStorage.getItem('lu5_state') || '{}');
       const localFriends = (localData._user === currentUser?.username) ? (localData.friends || []) : [];
-      // Merge: keep local friends that aren't in backend, add backend friends
       const localOnly = localFriends.filter(lf => !backendFriends.some(bf => bf.username === lf.username));
-      const merged = [...localOnly, ...backendFriends];
-      setFriends(merged);
-      persist({ friends: merged });
+      const mergedFriends = [...localOnly, ...backendFriends];
+      setFriends(mergedFriends);
+      console.log('Total friends after merge:', mergedFriends.length);
 
-      // Load shop data (owned items)
-      const shopRes = await dataAPI.getShop().catch(() => ({ coins: 0, items: [] }));
-      if (shopRes.items) {
-        const ownedKeys = shopRes.items.filter(i => i.owned).map(i => i.key);
-        if (ownedKeys.length > 0) {
-          setOwned(ownedKeys);
-          persist({ owned: ownedKeys });
-          if (ownedKeys.includes('chat_theme')) setGoldTheme(true);
-        }
-      }
-
-      // Load pending friend requests
+      // 3. Load pending friend requests
       const pendingRes = await dataAPI.getPendingFriends().catch(() => ({ requests: [] }));
       if (pendingRes.requests && pendingRes.requests.length > 0) {
+        console.log('Loaded pending friend requests:', pendingRes.requests.length);
         const pending = pendingRes.requests.map(r => ({
           id: r.id,
           display_name: r.display_name,
@@ -3231,6 +3228,39 @@ function App(){
         }));
         setFriendReqs(pending);
       }
+
+      // 4. Load shop data and owned items
+      const shopRes = await dataAPI.getShop().catch(() => ({ coins: 0, items: [] }));
+      if (shopRes.items) {
+        const ownedKeys = shopRes.items.filter(i => i.owned).map(i => i.key);
+        console.log('Loaded owned items:', ownedKeys);
+        if (ownedKeys.length > 0) {
+          setOwned(ownedKeys);
+          if (ownedKeys.includes('chat_theme')) setGoldTheme(true);
+        }
+      }
+
+      // 5. Load groups from backend
+      const groupsRes = await dataAPI.getGroups().catch(() => ({ groups: [] }));
+      if (groupsRes.groups && groupsRes.groups.length > 0) {
+        console.log('Loaded groups:', groupsRes.groups.length);
+        setGroups(groupsRes.groups);
+      }
+
+      // 6. Update streak (also records daily activity)
+      const streakRes = await dataAPI.getStreak();
+      if (streakRes) {
+        console.log('Streak updated:', streakRes);
+      }
+
+      console.log('Backend data load complete!');
+
+      // Persist all loaded data to localStorage for offline access
+      persist({
+        xp: meRes.user?.xp || xp,
+        coins: meRes.user?.coins || coins,
+        friends: mergedFriends,
+      });
     } catch (err) {
       console.error('Failed to load backend data:', err);
     }
