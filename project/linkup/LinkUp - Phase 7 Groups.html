@@ -3417,84 +3417,67 @@ function App(){
   function handleDeclineMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));}
 
   async function handleAddFriend(target){
-    // Send friend request to backend with friend's data
+    // Check if already friends (prevent duplicates)
+    if(friends.some(f=>f.username===target.username)) {
+      console.log('Already friends with', target.username);
+      return;
+    }
+
+    // 1. Add to local state immediately (optimistic update)
+    const newFriend={
+      ...target,
+      distance_m:target.distance_m||950,
+      parent:target.parent||null,
+      graphPos:target.graphPos||null
+    };
+    setFriends(prev=>{
+      if(prev.some(f=>f.username===target.username)) return prev;
+      const u=[...prev,newFriend];
+      persist({friends:u});
+      return u;
+    });
+
+    // 2. Award XP locally (+10 for adding friend)
+    setXp(prev => { const n = prev + 10; persist({ xp: n }); return n; });
+    const toastId=Date.now();
+    setXpToasts(t=>[...t,{id:toastId,xp:10,coins:0}]);
+    setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==toastId)),2200);
+
+    // 3. Send to backend (fire and forget - no re-fetching)
     try {
-      const result = await dataAPI.sendFriendRequest(target.username, {
+      await dataAPI.sendFriendRequest(target.username, {
         display_name: target.display_name,
         level: target.level,
         xp: target.xp,
         bio: target.bio
       });
-
-      if (result.mock || result.friendship?.status === 'accepted') {
-        // Mock user or auto-accepted: add to friends immediately, XP awarded
-        setFriends(prev=>{
-          if(prev.some(f=>f.username===target.username)) return prev;
-          const newFriend={
-            ...target,
-            distance_m:target.distance_m||950,
-            parent:target.parent||null,
-            graphPos:target.graphPos||null
-          };
-          const u=[...prev,newFriend];
-          persist({friends:u});
-          return u;
-        });
-        // Reload XP from backend, fallback to local +10 if backend doesn't update
-        const meRes = await authAPI.getMe().catch(() => null);
-        if (meRes?.user?.xp !== undefined) {
-          setXp(meRes.user.xp);
-          persist({ xp: meRes.user.xp });
-        } else {
-          // Backend XP didn't load, add locally
-          setXp(prev => { const n = prev + 10; persist({ xp: n }); return n; });
-        }
-        // Show XP toast
-        const id=Date.now();
-        setXpToasts(t=>[...t,{id,xp:10,coins:0}]);
-        setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==id)),2200);
-      } else if (result.pending) {
-        // Real user: friend request sent, waiting for acceptance
-        // Add visual feedback but don't add to friends yet
-        setNotifs(n=>[{id:`n-req-${Date.now()}`,type:'info',icon:'📤',title:'Friend request sent!',body:`Waiting for @${target.username} to accept`,ts:Date.now(),read:false},...n]);
-      }
+      console.log('Friend added to backend:', target.username);
     } catch(err) {
-      console.log('Friend request failed (may already exist):', err);
-      // Still add to local state for mock/offline experience
-      setFriends(prev=>{
-        if(prev.some(f=>f.username===target.username)) return prev;
-        const newFriend={...target,distance_m:target.distance_m||950,parent:target.parent||null,graphPos:target.graphPos||null};
-        const u=[...prev,newFriend];
-        persist({friends:u});
-        return u;
-      });
-      // Award XP locally as fallback
-      setXp(prev => { const n = prev + 10; persist({ xp: n }); return n; });
-      const id=Date.now();
-      setXpToasts(t=>[...t,{id,xp:10,coins:0}]);
-      setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==id)),2200);
+      // Backend failed but friend is already in local state - that's fine
+      console.log('Backend friend request failed (may already exist):', err.message);
     }
   }
   async function handleAcceptFriend(id){
     const req=friendReqs.find(r=>r.id===id);
     if(req){
-      // Accept on backend - it awards XP
-      try {
-        await dataAPI.respondToFriend(id, 'accepted');
-        // Reload XP from backend
-        const meRes = await authAPI.getMe().catch(() => null);
-        if (meRes?.user?.xp !== undefined) {
-          setXp(meRes.user.xp);
-          persist({ xp: meRes.user.xp });
-        }
-      } catch(err) {
-        console.log('Accept friend failed:', err);
-      }
-      setFriends(prev=>{if(prev.some(f=>f.username===req.username))return prev;const u=[...prev,{...req,distance_m:450}];persist({friends:u});return u;});
-      // Show XP toast
+      // 1. Add to friends locally
+      setFriends(prev=>{
+        if(prev.some(f=>f.username===req.username)) return prev;
+        const u=[...prev,{...req,distance_m:450}];
+        persist({friends:u});
+        return u;
+      });
+
+      // 2. Award XP locally (+10)
+      setXp(prev => { const n = prev + 10; persist({ xp: n }); return n; });
       const toastId=Date.now();
       setXpToasts(t=>[...t,{id:toastId,xp:10,coins:0}]);
       setTimeout(()=>setXpToasts(t=>t.filter(e=>e.id!==toastId)),2200);
+
+      // 3. Accept on backend (fire and forget - no re-fetching)
+      dataAPI.respondToFriend(id, 'accepted').catch(err => {
+        console.log('Accept friend backend failed:', err.message);
+      });
     }
     setFriendReqs(r=>r.filter(x=>x.id!==id));
   }
