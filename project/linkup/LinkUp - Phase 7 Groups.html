@@ -3416,12 +3416,26 @@ function App(){
   function handleAcceptMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));awardXP(15,2);}
   function handleDeclineMeetup(id){setIncomingReqs(r=>r.filter(x=>x.id!==id));}
 
+  // Track usernames currently being added to prevent duplicate rapid calls
+  const addingFriendsRef = useRef(new Set());
+
   async function handleAddFriend(target){
-    // Check if already friends (prevent duplicates)
-    if(friends.some(f=>f.username===target.username)) {
-      console.log('Already friends with', target.username);
+    const username = target.username;
+
+    // Check if already being added (prevents rapid duplicate calls)
+    if(addingFriendsRef.current.has(username)) {
+      console.log('Already adding:', username);
       return;
     }
+
+    // Check if already friends
+    if(friends.some(f=>f.username===username)) {
+      console.log('Already friends with', username);
+      return;
+    }
+
+    // Mark as being added
+    addingFriendsRef.current.add(username);
 
     // 1. Add to local state immediately (optimistic update)
     const newFriend={
@@ -3431,7 +3445,7 @@ function App(){
       graphPos:target.graphPos||null
     };
     setFriends(prev=>{
-      if(prev.some(f=>f.username===target.username)) return prev;
+      if(prev.some(f=>f.username===username)) return prev;
       const u=[...prev,newFriend];
       persist({friends:u});
       return u;
@@ -3445,16 +3459,16 @@ function App(){
 
     // 3. Send to backend (fire and forget - no re-fetching)
     try {
-      await dataAPI.sendFriendRequest(target.username, {
+      await dataAPI.sendFriendRequest(username, {
         display_name: target.display_name,
         level: target.level,
         xp: target.xp,
         bio: target.bio
       });
-      console.log('Friend added to backend:', target.username);
+      console.log('Friend saved to backend:', username);
     } catch(err) {
-      // Backend failed but friend is already in local state - that's fine
-      console.log('Backend friend request failed (may already exist):', err.message);
+      // 409 = already exists, that's fine
+      console.log('Backend:', err.message || 'already exists');
     }
   }
   async function handleAcceptFriend(id){
