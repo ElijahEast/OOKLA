@@ -42,8 +42,8 @@ const limiter = rateLimit({
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50, // reasonable limit for auth endpoints
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 100, // 100 requests per minute for dev/testing
   message: { error: 'Too many auth attempts, please try again later.' },
 });
 
