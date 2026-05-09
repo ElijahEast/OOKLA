@@ -3165,6 +3165,7 @@ function App(){
   const [authLoading, setAuthLoading] = useState(!!getToken()); // loading if we need to verify token
   const dataLoadedForRef = useRef(null); // Track which user we've loaded data for to prevent infinite loops
   const isLoadingDataRef = useRef(false); // Prevent concurrent loadBackendData calls
+  const friendsInitializedRef = useRef(false); // Once true, only allow ADDING friends, not resetting
 
   // Check existing token on mount
   useEffect(() => {
@@ -3187,15 +3188,20 @@ function App(){
     }
   }, []);
 
-  // Load ALL user data from backend on login
+  // Load ALL user data from backend on login - ONLY RUNS ONCE PER SESSION
   async function loadBackendData() {
     // Prevent concurrent calls
     if (isLoadingDataRef.current) {
       console.log('loadBackendData already running, skipping');
       return;
     }
+    // CRITICAL: Never reload friends after initial load
+    if (friendsInitializedRef.current) {
+      console.log('Friends already initialized, refusing to reload');
+      return;
+    }
     isLoadingDataRef.current = true;
-    console.log('Loading all user data from backend...');
+    console.log('Loading all user data from backend (ONE TIME ONLY)...');
     try {
       // 1. Load user's profile (XP, level, coins, display_name, bio, etc.)
       const meRes = await authAPI.getMe().catch(() => ({ user: null }));
@@ -3228,6 +3234,8 @@ function App(){
       const mergedFriends = [...localOnly, ...backendFriends];
       console.log('Setting friends:', mergedFriends.length, 'total (', backendFriends.length, 'backend,', localOnly.length, 'local-only)');
       setFriends(mergedFriends);
+      friendsInitializedRef.current = true; // LOCK - no more full resets allowed
+      console.log('Friends LOCKED - only additions allowed from now on');
 
       // 3. Load pending friend requests
       const pendingRes = await dataAPI.getPendingFriends().catch(() => ({ requests: [] }));
@@ -3381,6 +3389,7 @@ function App(){
       // User logged out, reset refs so we reload data on next login
       dataLoadedForRef.current = null;
       isLoadingDataRef.current = false;
+      friendsInitializedRef.current = false;
     }
   }, [currentUser]);
 
