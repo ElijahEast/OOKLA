@@ -3163,6 +3163,7 @@ function App(){
   const [authScreen, setAuthScreen] = useState(getToken() ? null : 'splash'); // null = logged in
   const [currentUser, setCurrentUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(!!getToken()); // loading if we need to verify token
+  const dataLoadedForRef = useRef(null); // Track which user we've loaded data for to prevent infinite loops
 
   // Check existing token on mount
   useEffect(() => {
@@ -3193,7 +3194,7 @@ function App(){
       const meRes = await authAPI.getMe().catch(() => ({ user: null }));
       if (meRes.user) {
         console.log('Loaded profile:', meRes.user);
-        setCurrentUser(prev => ({ ...prev, ...meRes.user }));
+        // NOTE: Do NOT call setCurrentUser here - it triggers the useEffect that calls loadBackendData again
         // Set XP, level, coins from backend (database is source of truth)
         if (meRes.user.xp !== undefined) setXp(meRes.user.xp);
         if (meRes.user.coins !== undefined) setCoins(meRes.user.coins);
@@ -3348,6 +3349,12 @@ function App(){
   // Load backend data when user logs in or session restores
   useEffect(() => {
     if (currentUser) {
+      // Prevent infinite loops: only load data once per user
+      if (dataLoadedForRef.current === currentUser.username) {
+        return; // Already loaded data for this user
+      }
+      dataLoadedForRef.current = currentUser.username;
+
       // Load saved local data for this user first
       const savedData = load(currentUser.username);
 
@@ -3367,6 +3374,9 @@ function App(){
       setIncomingReqs([]);
       // Load fresh data from backend and merge with local
       loadBackendData();
+    } else {
+      // User logged out, reset the ref so we reload data on next login
+      dataLoadedForRef.current = null;
     }
   }, [currentUser]);
 
