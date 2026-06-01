@@ -14,6 +14,7 @@ router.post(
   ],
   async (req, res, next) => {
     const errors = validationResult(req);
+
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: 'Username required.' });
     }
@@ -34,16 +35,15 @@ router.post(
 
       const targetUser = targetRes.rows[0];
       const addresseeId = targetUser.id;
-      const isMock = targetUser.is_mock === true;
 
       if (String(addresseeId) === String(req.user.sub)) {
         return res.status(400).json({ error: 'Cannot friend yourself.' });
       }
 
       const existing = await pool.query(
-        `SELECT id, status
+        `SELECT id, requester_id, addressee_id, status, created_at
          FROM friendships
-         WHERE 
+         WHERE
            (requester_id = $1 AND addressee_id = $2)
            OR
            (requester_id = $2 AND addressee_id = $1)`,
@@ -51,55 +51,57 @@ router.post(
       );
 
       if (existing.rows.length) {
-        return res.status(409).json({
-          error: 'Friendship already exists.',
-          status: existing.rows[0].status,
+        const existingFriendship = existing.rows[0];
+
+        if (existingFriendship.status !== 'accepted') {
+          const updated = await pool.query(
+            `UPDATE friendships
+             SET status = 'accepted', updated_at = NOW()
+             WHERE id = $1
+             RETURNING id, requester_id, addressee_id, status, created_at`,
+            [existingFriendship.id]
+          );
+
+          return res.status(200).json({
+            friendship: updated.rows[0],
+            mock: true,
+            pending: false,
+            alreadyExists: true,
+          });
+        }
+
+        return res.status(200).json({
+          friendship: existingFriendship,
+          mock: true,
+          pending: false,
+          alreadyExists: true,
         });
       }
 
-      const status = isMock ? 'accepted' : 'pending';
-
       const result = await pool.query(
         `INSERT INTO friendships (requester_id, addressee_id, status)
-         VALUES ($1, $2, $3)
+         VALUES ($1, $2, 'accepted')
          RETURNING id, requester_id, addressee_id, status, created_at`,
-        [req.user.sub, addresseeId, status]
+        [req.user.sub, addresseeId]
       );
 
       const friendship = result.rows[0];
 
-      if (isMock) {
-        try {
-          await awardXP(req.user.sub, {
-            eventType: 'friend_added',
-            xp: 10,
-            description: 'Added a new friend!',
-          });
-        } catch (xpErr) {
-          console.log('XP award failed for mock friend:', xpErr.message);
-        }
-
-        return res.status(201).json({
-          friendship,
-          mock: true,
-          pending: false,
+      try {
+        await awardXP(req.user.sub, {
+          eventType: 'friend_added',
+          xp: 10,
+          description: 'Added a new friend!',
         });
+      } catch (xpErr) {
+        console.log('XP award failed for mock friend:', xpErr.message);
       }
-
-      await pool.query(
-        `INSERT INTO notifications (user_id, type, title, body, ref_id)
-         VALUES ($1, 'friend_request', 'New friend request', $2, $3)`,
-        [
-          addresseeId,
-          `@${req.user.username} wants to be friends`,
-          friendship.id,
-        ]
-      );
 
       return res.status(201).json({
         friendship,
-        mock: false,
-        pending: true,
+        mock: true,
+        pending: false,
+        alreadyExists: false,
       });
     } catch (err) {
       next(err);
