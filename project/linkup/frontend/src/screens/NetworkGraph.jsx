@@ -31,17 +31,7 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     catch { return { x: 195, y: 310, scale: 1 }; }
   });
   const [selected, setSelected] = useState(null);
-  const [graphFriends, setGraphFriends] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('lu_graph_friends') || 'null');
-      if (saved && saved.length) {
-        const merged = [...saved];
-        friends.forEach(f => { if (!merged.find(m => m.username === f.username)) merged.push(f); });
-        return merged;
-      }
-    } catch {}
-    return friends;
-  });
+  const [graphFriends, setGraphFriends] = useState(friends);
   const [pending, setPending] = useState({});
   const [multiMode, setMultiMode] = useState(false);
   const [multiSel, setMultiSel] = useState(new Set());
@@ -56,16 +46,9 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     try { localStorage.setItem('lu_graph_tf', JSON.stringify(tf)); } catch {}
   }, [tf]);
 
-  // Merge new friends from App state, preserving _parent on existing entries
+  // App state is the source of truth. Do not resurrect old graph-only friends from localStorage.
   useEffect(() => {
-    setGraphFriends(prev => {
-      const merged = [...prev];
-      friends.forEach(f => {
-        if (!merged.find(m => m.username === f.username)) merged.push(f);
-      });
-      try { localStorage.setItem('lu_graph_friends', JSON.stringify(merged)); } catch {}
-      return merged;
-    });
+    setGraphFriends(friends);
   }, [friends]);
 
   function assignPos(username, x, y) {
@@ -235,12 +218,9 @@ function NetworkGraphInner({ user, friends, blockedUsers, onAddFriend, onOpenCha
     const fofNode = nodes.find(n => n.id === nodeData.username);
     const parentUsername = fofNode?.parent || null;
     setTimeout(() => {
-      setGraphFriends(prev => {
-        const next = [...prev, { ...nodeData, distance_m: 600, _parent: parentUsername }];
-        try { localStorage.setItem('lu_graph_friends', JSON.stringify(next)); } catch {}
-        return next;
-      });
-      onAddFriend && onAddFriend(nodeData);
+      const friendToAdd = { ...nodeData, distance_m: 600, _parent: parentUsername };
+      setGraphFriends(prev => prev.some(f => f.username === friendToAdd.username) ? prev : [...prev, friendToAdd]);
+      onAddFriend && onAddFriend(friendToAdd);
     }, 800);
   }
 
