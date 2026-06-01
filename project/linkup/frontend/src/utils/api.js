@@ -44,8 +44,8 @@ export const groups = {
 export const friends = {
   list: () => req('GET', '/api/friends'),
   pending: () => req('GET', '/api/friends/pending'),
-  request: (userId) => req('POST', '/api/friends/request', { addressee_id: userId }),
-  respond: (id, status) => req('PATCH', `/api/friends/${id}/respond`, { status }),
+  request: (username) => req('POST', '/api/friends/request', { username }),
+  respond: (id, action) => req('PATCH', `/api/friends/${id}/respond`, { action }),
 };
 
 // ── Nearby ────────────────────────────────────────────────────────────────────
