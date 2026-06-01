@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { C, levelFromXp } from './utils/constants';
-import { MOCK_EVENTS, MOCK_QUESTS, NOTIF_TEMPLATES } from './utils/data';
-import { auth } from './utils/api';
+import { MOCK_EVENTS, MOCK_QUESTS, NOTIF_TEMPLATES, ALL_USERS } from './utils/data';
+import { auth, friends as friendsApi } from './utils/api';
 
 import { BottomNav, XPToast, LevelUpModal, NotifCenter, Spinner } from './components/ui';
 import { UserProfilePage, PinSheet, RequestModal } from './components/UserProfilePage';
@@ -16,7 +16,7 @@ import { ChatScreen } from './screens/ChatScreen';
 import { GroupChatScreen } from './screens/GroupChatScreen';
 import { SafetyHubScreen, BlockReportModal, MeetupSafetyModal } from './screens/SafetyScreen';
 
-const VERSION = '6.0';
+const VERSION = '6.1';
 const STORAGE_KEY = 'lu5_state';
 
 function load() {
@@ -27,17 +27,9 @@ function load() {
   } catch { return {}; }
 }
 
-const DEFAULT_FRIENDS = [
-  { id: 2, username: 'jordan_k', display_name: 'Jordan K.', level: 12, xp: 890, bio: 'Skater & photographer.', color: 'oklch(58% 0.16 270)', distance_m: 450, total_meetups: 18, current_streak: 6 },
-];
-
-const DEFAULT_INCOMING = [
-  { id: 'req-1', sender_name: 'Alex M.', username: 'alex_m', color: 'oklch(58% 0.16 190)', distance_m: 180, message: 'Hey! Want to grab coffee? ☕' },
-];
-
-const DEFAULT_FRIEND_REQS = [
-  { id: 'fr-1', display_name: 'Jordan K.', username: 'jordan_k', level: 12, color: 'oklch(58% 0.16 270)' },
-];
+const DEFAULT_FRIENDS = [];
+const DEFAULT_INCOMING = [];
+const DEFAULT_FRIEND_REQS = [];
 
 export default function App() {
   const [authState, setAuthState] = useState('loading'); // 'loading' | 'authed' | 'unauthed'
@@ -139,6 +131,42 @@ function MainApp({ authUser, onLogout }) {
     }));
   }
 
+  function normalizeFriend(raw) {
+    const mock = ALL_USERS.find(u => u.username === raw?.username) || {};
+    return {
+      ...mock,
+      ...raw,
+      id: raw?.id || mock.id || raw?.username,
+      username: raw?.username || mock.username,
+      display_name: raw?.display_name || mock.display_name || raw?.username,
+      color: raw?.color || mock.color || 'oklch(58% 0.16 190)',
+      distance_m: raw?.distance_m || mock.distance_m || 950,
+      is_mock: raw?.is_mock ?? true,
+    };
+  }
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadBackendFriends() {
+      try {
+        const data = await friendsApi.list();
+        if (!alive) return;
+
+        const apiFriends = (data.friends || []).map(normalizeFriend);
+        setFriends(apiFriends);
+        setFriendReqs([]);
+        persist({ friends: apiFriends });
+      } catch (err) {
+        // During mock-only development, keep local mock friends if the API is unavailable.
+        setFriendReqs([]);
+      }
+    }
+
+    loadBackendFriends();
+    return () => { alive = false; };
+  }, []);
+
   function awardXP(amount, awardCoins = 0) {
     const xpAmt = Math.max(0, amount);
     const coinAmt = Math.max(0, awardCoins);
@@ -171,29 +199,34 @@ function MainApp({ authUser, onLogout }) {
   function handleAcceptMeetup(id) { setIncomingReqs(r => r.filter(x => x.id !== id)); awardXP(15, 2); }
   function handleDeclineMeetup(id) { setIncomingReqs(r => r.filter(x => x.id !== id)); }
 
-  function handleAddFriend(target) {
-    setTimeout(() => {
-      setFriends(prev => {
-        if (prev.some(f => f.username === target.username)) return prev;
-        const u = [...prev, { ...target, distance_m: target.distance_m || 950 }];
-        persist({ friends: u });
-        return u;
-      });
-      awardXP(10);
-    }, 700);
+  async function handleAddFriend(target) {
+    if (!target?.username) return;
+
+    const newFriend = normalizeFriend(target);
+    let added = false;
+
+    setFriends(prev => {
+      if (prev.some(f => f.username === newFriend.username)) return prev;
+      added = true;
+      const updated = [...prev, newFriend];
+      persist({ friends: updated });
+      return updated;
+    });
+
+    if (added) awardXP(10);
+
+    // Sync to backend when that mock user exists in Postgres.
+    // If it does not exist yet, local mock mode still works without glitching.
+    try {
+      await friendsApi.request(newFriend.username);
+    } catch (err) {
+      console.warn('Mock friend saved locally only:', err.message);
+    }
   }
 
   function handleAcceptFriend(id) {
     const req = friendReqs.find(r => r.id === id);
-    if (req) {
-      setFriends(prev => {
-        if (prev.some(f => f.username === req.username)) return prev;
-        const u = [...prev, { ...req, distance_m: 450 }];
-        persist({ friends: u });
-        return u;
-      });
-      awardXP(10);
-    }
+    if (req) handleAddFriend(req);
     setFriendReqs(r => r.filter(x => x.id !== id));
   }
   function handleDeclineFriend(id) { setFriendReqs(r => r.filter(x => x.id !== id)); }
